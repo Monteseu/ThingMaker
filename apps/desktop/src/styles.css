@@ -3084,6 +3084,14 @@ body.resizing-sidebar * {
   gap: 4px;
 }
 
+.activity-toggle {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  min-height: 32px;
+}
+
 .activity-head {
   display: flex;
   align-items: flex-end;

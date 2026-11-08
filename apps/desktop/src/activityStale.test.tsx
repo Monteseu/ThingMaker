@@ -70,6 +70,19 @@ beforeEach(() => useStore.setState({ sessions: {}, jobs: {} }));
 afterEach(cleanup);
 
 describe("work the session has gone quiet about", () => {
+  it("keeps the desktop panel visible regardless of the phone preference", () => {
+    localStorage.setItem("thingmaker.phone.activityCollapsed", "true");
+    try {
+      seed(30_000);
+      render(<ActivityBar onOpenAgents={() => undefined} sessionId={SESSION} />);
+      expect(screen.getByRole("list", { name: "Who is working" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Hide team activity" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Show team activity" })).toBeNull();
+    } finally {
+      localStorage.removeItem("thingmaker.phone.activityCollapsed");
+    }
+  });
+
   it("reports it as running while the session is still talking", () => {
     seed(30_000);
     render(<ActivityBar onOpenAgents={() => undefined} sessionId={SESSION} />);
