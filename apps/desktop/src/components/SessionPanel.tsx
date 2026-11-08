@@ -1335,7 +1335,7 @@ export function SessionPanel({ sessionId }: { sessionId: string }) {
         <div className="composer-row">
           <button
             aria-label={t("Attach media")}
-            className="icon-button remote-hidden"
+            className="icon-button"
             disabled={!canSend}
             onClick={() =>
               api
