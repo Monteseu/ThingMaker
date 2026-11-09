@@ -120,7 +120,6 @@ export function TopBar() {
       </div>
       <div className="topbar-actions">
         {!IS_REMOTE && <UpdateButton />}
-        <button className="button small" title={t("Enter Chill mode (⌘⇧C)")} onClick={() => useStore.getState().setChillMode(true)} type="button">☾ Chill</button>
         <button
           className={`icon-button remote-hidden ${view.kind === "integrations" ? "on" : ""}`}
           onClick={() => setView({ kind: "integrations" })}

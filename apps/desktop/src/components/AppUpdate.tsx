@@ -1,5 +1,5 @@
 /**
- * ThingMaker's own updates (REL-03): the button beside Chill, which carries a
+ * ThingMaker's own updates (REL-03): the top bar's update button, which carries a
  * blue dot while a newer release is waiting, its panel, and the popup offered
  * at startup when the reminder is on. Installing downloads the release,
  * checks its signature, installs it and restarts.
@@ -66,7 +66,7 @@ function Notes({ notes }: { notes: string | undefined }) {
   );
 }
 
-/** The button left of Chill. Its panel says what there is and installs it. */
+/** The top bar's update button. Its panel says what there is and installs it. */
 export function UpdateButton() {
   const update = useStore((s) => s.appUpdate);
   const checkForUpdate = useStore((s) => s.checkForUpdate);

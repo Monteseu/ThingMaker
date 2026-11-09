@@ -283,8 +283,6 @@ type State = {
   /** Closes the startup popup; `forever` also turns the reminder off. */
   dismissUpdatePrompt: (forever?: boolean) => void;
   sidebarCollapsed: boolean;
-  chillMode: boolean;
-  setChillMode: (enabled: boolean) => void;
   /** Model/effort remembered from the last picker change (new sessions). */
   sessionDefaults: SessionDefaults;
   /** Images seen appearing under output/imagegen per session (observed files). */
@@ -925,8 +923,6 @@ export const useStore = create<State>((set, get) => ({
   bigThingDoc: {},
   // On the phone the sidebar is a drawer, closed until asked for.
   sidebarCollapsed: IS_REMOTE,
-  chillMode: false,
-  setChillMode: (enabled) => set({ chillMode: enabled }),
   sessionDefaults: {},
   observedImages: {},
   seenImageFiles: {},

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from "react";
+import { useEffect } from "react";
 import { IS_REMOTE } from "./remote/mode";
 import { ConnectionBanner } from "./remote/ConnectionBanner";
 import { useStore } from "./store";
@@ -19,7 +19,6 @@ import { CommandPalette } from "./components/CommandPalette";
 import { IconFolder, IconKey } from "./components/icons";
 import { t } from "./i18n";
 
-const ChillView = lazy(() => import("./chill/ChillView"));
 
 function Welcome() {
   const addWorkspaceByPicker = useStore((s) => s.addWorkspaceByPicker);
@@ -95,8 +94,6 @@ export function App() {
   const announcement = useStore((s) => s.announcement);
   const reducedMotion = useStore((s) => s.uiPrefs.reducedMotion);
   const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
-  const chillMode = useStore((s) => s.chillMode);
-  const setChillMode = useStore((s) => s.setChillMode);
 
   useEffect(() => {
     void bootstrap();
@@ -105,14 +102,13 @@ export function App() {
   const toggleSidebar = useStore((s) => s.toggleSidebar);
   useKeyboardShortcuts();
 
-  // On the phone, Android's back closes the topmost thing — Chill, the
-  // palette, a dialog, the drawer — then opens the drawer from a screen, and
+  // On the phone, Android's back closes the topmost thing — the palette,
+  // a dialog, the drawer — then opens the drawer from a screen, and
   // only then leaves the app.
   useEffect(() => {
     if (!IS_REMOTE) return;
     const back = () => {
       const state = useStore.getState();
-      if (state.chillMode) { state.setChillMode(false); return true; }
       if (state.paletteOpen) { state.setPaletteOpen(false); return true; }
       if (document.querySelector('[aria-modal="true"]')) {
         (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
@@ -134,9 +130,8 @@ export function App() {
       <CloseRequestDialog />
       <LockedResumeDialog />
       {!IS_REMOTE && <UpdatePrompt />}
-      {IS_REMOTE && !chillMode && <ConnectionBanner />}
-      {chillMode && <ErrorBoundary label="Chill" onReset={() => setChillMode(false)} fallback={<div className="chill" role="alert" aria-label={t("Chill rendering unavailable")}><button aria-label={t("Back to work")} onClick={() => setChillMode(false)}><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor"><path d="M9 5H5v14h4M13 8l4 4-4 4M9 12h11" /></svg></button></div>}><Suspense fallback={<div className="chill" aria-label={t("Opening Chill")} />}><ChillView onExit={() => setChillMode(false)} /></Suspense></ErrorBoundary>}
-      <div className="shell" style={chillMode ? { display: "none" } : undefined}>
+      {IS_REMOTE && <ConnectionBanner />}
+      <div className="shell">
         {!sidebarCollapsed && (
           <ErrorBoundary label={t("sidebar")}>
             <Sidebar />

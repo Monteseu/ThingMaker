@@ -47,7 +47,6 @@ export function CommandPalette() {
 
   const actions = useMemo<Action[]>(() => {
     const list: Action[] = [
-      { id: "view.chill", label: state.chillMode ? t("Leave Chill mode") : t("Enter Chill mode"), hint: "⌘⇧C", run: () => state.setChillMode(!state.chillMode) },
       { id: "workspace.add", label: t("Add workspace…"), hint: "⌘O", run: () => void state.addWorkspaceByPicker() },
       { id: "view.signin", label: t("Provider sign-in"), hint: "⌘,", run: () => { state.setView({ kind: "signin" }); void state.loadProviders(); } },
       { id: "view.settings", label: t("Settings"), hint: "⌘;", run: () => { state.setView({ kind: "settings" }); void state.loadSettings(); } },
@@ -101,7 +100,6 @@ export function CommandPalette() {
   const run = (action: Action | undefined) => {
     if (!action) return;
     setOpen(false);
-    if(action.id!=="view.chill")state.setChillMode(false);
     action.run();
   };
   return (

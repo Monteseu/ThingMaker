@@ -6802,11 +6802,6 @@ html[data-platform="android"] { --traffic-lights: 8px; --titlebar: 52px; height:
   margin: 8px 0;
 }
 
-.chill-hidden-list {
-  margin: 4px 0 8px;
-  padding-left: 18px;
-}
-
 /* A provider program has a newer release (Providers button). */
 /* Background tasks: green while any runs, grey once all have ended. */
 .tab-icon .badge-dot {
@@ -7569,7 +7564,7 @@ html[data-platform="android"] { --traffic-lights: 8px; --titlebar: 52px; height:
   }
 }
 
-/* ThingMaker's own updates (AppUpdate): the button left of Chill with its
+/* ThingMaker's own updates (AppUpdate): the button in the top bar with its
    blue dot, its panel, and the startup popup. */
 .update-wrap {
   position: relative;

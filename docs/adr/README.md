@@ -11,7 +11,7 @@ holds the tests that protect the decision.
 | [ADR-007](ADR-007-convenience-vs-enforcement.md) | Distinguish convenience from enforcement | Accepted |
 | [ADR-009](ADR-009-providers-through-official-programs.md) | Providers run through their own official programs, on subscriptions | Accepted |
 | [ADR-010](ADR-010-big-thing-engine.md) | Big Thing runs in the supervisor, and speaks through tools | Accepted |
-| [ADR-011](ADR-011-chill-activity-and-skins.md) | Chill uses neutral activity and replaceable visual skins | Accepted |
+| [ADR-011](ADR-011-chill-activity-and-skins.md) | Chill uses neutral activity and replaceable visual skins | Withdrawn (Chill removed, 9 Nov 2026) |
 | [ADR-012](ADR-012-one-phone-system-two-ways-in.md) | One phone system, reachable through a relay or the user's tunnel | Accepted |
 
 The missing numbers belong to records from the runtime ThingMaker started on,

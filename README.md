@@ -52,7 +52,6 @@ with your own sign-in, and never reads, stores or passes on a token.
 | 📊 **Live usage** | Five-hour and weekly windows for Claude and Codex in the sidebar, read from each provider's own program at no cost. |
 | 🧭 **Big Thing** | A long-horizon goal runner: drop in a plan document and the agent turns it into milestones and tasks with their dependencies and checks; press Start and it runs to the end on its own — see [Big Thing](#big-thing) below. |
 | 🧠 **Shared memory** | One project memory — decisions, conventions, facts — that the orchestrator, its workers and you read and write (`memory_read`, `memory_write`), plus a live task board. |
-| 🌿 **Chill mode** | A living cyber terrarium shows real agents as cute helpers, projects as plants and touched files as foliage. An observational scene showing only project names when several plants are visible with quiet icon controls, source navigation, attention lanterns and gentle lighting. Enter with **⌘⇧C** or the top-bar **Chill** button; see [Chill mode](docs/chill.md). |
 | 🖼️ **Inline images** | Images agents generate or read show up right in the transcript, including Codex's generated images. |
 | 🔌 **MCP servers in one click** | Install Playwright, Context7, GitHub and others from a catalog, or paste any server's config or `mcp add` command. ThingMaker test-starts it, then writes it through each provider's own `mcp add`, so Claude Code, Codex and Antigravity all have it. Secrets stay in the keychain as `${NAME}` references. |
 | 📱 **On your phone** | An Android app follows and drives the Mac's sessions and Big Things from anywhere, through your own relay on Cloudflare: read transcripts live, send and steer, answer a Big Thing, pause and resume, and get notified when one needs you. Paired by QR code, locked by your fingerprint, revocable per phone — see [On your phone](#4-on-your-phone). |
@@ -163,8 +162,8 @@ which worker did each task, and the project memory.
 [latest release](https://github.com/Monteseu/ThingMaker/releases/latest). The
 first time, macOS asks you to confirm an app from an unidentified developer
 (right-click > Open) and Windows SmartScreen asks too ("More info" > "Run
-anyway"). From then on ThingMaker updates itself: a blue dot on the button
-left of Chill says a new version is ready, and installing it restarts the app.
+anyway"). From then on ThingMaker updates itself: a blue dot on the update
+button in the top bar says a new version is ready, and installing it restarts the app.
 
 **From source**, to change it or to run the latest commit:
 

@@ -1,6 +1,11 @@
 # ADR-011: Chill activity and replaceable visual skins
 
-Status: Accepted · 12 October 2026
+Status: Withdrawn · 9 November 2026 (accepted 12 October 2026)
+
+> Chill mode was removed from ThingMaker on 9 November 2026: it went unused
+> and cost a session subscription and database writes for every open session.
+> The `ActivityService`, its `activity_files` table (dropped by migration 24)
+> and the renderer's `chill/` folder went with it. Kept as a record of the decision.
 
 Chill visualizes ongoing work while the normal interface remains mounted. It
 must reflect the same sessions, workers, native subagents and goals, and future

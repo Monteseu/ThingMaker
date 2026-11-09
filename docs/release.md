@@ -49,8 +49,8 @@ ThingMaker updates itself from this repository's GitHub releases.
 **In the app.** About five seconds after start, then every six hours, the
 app asks `https://github.com/Monteseu/ThingMaker/releases/latest/download/latest.json`
 whether a newer version exists (`tauri-plugin-updater`, driven from Rust:
-`app_update_check`, `app_update_install`). While one does, the button left of
-Chill carries a blue dot; its panel shows the version and the release notes
+`app_update_check`, `app_update_install`). While one does, the top bar's update
+button carries a blue dot; its panel shows the version and the release notes
 and installs it. At startup a popup offers it too, unless Settings > Updates
 turns that off. Installing downloads the bundle, verifies its signature
 against the public key pinned in `tauri.conf.json` (`plugins.updater.pubkey`),

@@ -1528,8 +1528,6 @@ export type OpenResponse = { handle: SessionHandle; desktopSessionId: string; sn
 
 /** Command names exposed by the Tauri host. */
 export const COMMANDS = {
-  activitySnapshot: "activity_snapshot",
-  activityClear: "activity_clear",
   executionProfiles: "execution_profiles",
   workspaceInspect: "workspace_inspect",
   workspaceTrust: "workspace_trust",
@@ -1735,22 +1733,3 @@ export const COMMANDS = {
 
 export type CommandName = (typeof COMMANDS)[keyof typeof COMMANDS];
 
-/** Derived facts for Chill; unknown attribution remains at session level. */
-export type ActivityActor = {
-  id: string; sessionId: string; workspaceId: string; parentId: string | null;
-  name: string; provider: Provider; model: string | null; status: string;
-  task: string; operation: string; fileId: string | null; lastSeen: number;
-  /** Live-work evidence; replay and historical completion do not refresh this. */
-  lastActiveAt?: number | null;
-  native: boolean; generation: DecimalId; waitingReason?: string | null; retryAtUnixMs?: number | null;
-};
-export type FileActivity = {
-  id: string; workspaceId: string; path: string; external: boolean;
-  operation: string; touchedAt: number; sessionId: string; activeActors: string[];
-};
-export type ActivityGoal = { id: string; workspaceId: string; title: string; state: string; verified: number; total: number; pending: number; sessionId: string | null };
-export type ActivitySnapshot = {
-  revision: string; observedAt: number; actors: ActivityActor[]; files: FileActivity[];
-  worktrees?: { workspaceId: string; sourceWorkspaceId: string; branch: string }[];
-  jobs: JobView[]; goals: ActivityGoal[];
-};

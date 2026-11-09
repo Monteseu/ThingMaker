@@ -1,5 +1,5 @@
 import { IS_REMOTE } from "../remote/mode";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { PhoneSection } from "./PhoneSection";
 import {
   CLAUDE_ORCHESTRATOR_EFFORT,
@@ -18,7 +18,6 @@ import { redactText } from "../redact";
 import { chooseLanguage, languageChoice, t, type LanguageChoice } from "../i18n";
 
 
-const ChillPreferences = lazy(() => import("../chill/ChillPreferences"));
 
 function bytes(n: number): string {
   return n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KiB` : `${(n / 1024 / 1024).toFixed(1)} MiB`;
@@ -535,7 +534,6 @@ export function SettingsPanel() {
         ))}
       </section>
 
-      <Suspense fallback={null}><ChillPreferences /></Suspense>
       <PhoneSection />
       <SupportBundleSection />
       <StorageSection />

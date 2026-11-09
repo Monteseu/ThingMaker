@@ -46,7 +46,6 @@ pub struct ResolvedProvider {
 }
 
 pub struct AppState {
-    pub activity: Arc<thingmaker_supervisor::activity::ActivityService>,
     pub storage: Arc<Mutex<Storage>>,
     pub actors: Mutex<HashMap<String, SessionActor>>,
     /// Canonical root per live session id, for worktree cleanup safety.
@@ -86,11 +85,9 @@ impl AppState {
         let storage = Storage::open(&data_dir.join("thingmaker.db")).map_err(|e| e.to_string())?;
         tracing::info!(?data_dir, "desktop state initialized");
         let storage = Arc::new(Mutex::new(storage));
-        let activity = thingmaker_supervisor::activity::ActivityService::new(Arc::clone(&storage));
         Ok(Self {
             review_caches: Mutex::new(HashMap::new()),
             pending_update: Mutex::new(None),
-            activity,
             storage,
             actors: Mutex::new(HashMap::new()),
             agent_session_ids: Mutex::new(HashMap::new()),
@@ -124,7 +121,6 @@ impl AppState {
     /// Registers a live attachment. `agent_session_id` is the id the agent
     /// itself uses.
     pub fn insert_actor(&self, id: String, agent_session_id: String, actor: SessionActor, root: PathBuf) {
-        self.activity.observe(actor.clone(), root.clone());
         crate::titles::observe(Arc::clone(&self.storage), self.home.clone(), actor.clone(), agent_session_id.clone(), root.clone());
         self.actor_roots
             .lock()
@@ -171,7 +167,6 @@ impl AppState {
     }
 
     pub fn remove_actor(&self, id: &str) -> Option<SessionActor> {
-        self.activity.remove(id);
         self.actor_models.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).remove(id);
         self.actor_roots
             .lock()

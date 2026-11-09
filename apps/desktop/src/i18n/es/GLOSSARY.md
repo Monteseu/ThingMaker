@@ -5,7 +5,7 @@ style as the English. Keep these terms consistent across every catalog.
 
 | English | Spanish |
 | --- | --- |
-| ThingMaker, Big Thing, Chill, Claude Code, Codex, Gemini, Antigravity, MCP | unchanged (names) |
+| ThingMaker, Big Thing, Claude Code, Codex, Gemini, Antigravity, MCP | unchanged (names) |
 | session | sesión |
 | workspace | espacio de trabajo |
 | agent | agente |

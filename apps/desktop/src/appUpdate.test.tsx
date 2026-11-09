@@ -1,6 +1,6 @@
 /**
  * ThingMaker's own updates: the startup popup only when asked for, the blue
- * dot on the button beside Chill, installing with progress, and a failed
+ * dot on the top bar's button, installing with progress, and a failed
  * install that leaves things as they were.
  */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -50,7 +50,7 @@ describe("checking", () => {
   });
 });
 
-describe("the button beside Chill", () => {
+describe("the top bar's update button", () => {
   it("carries a blue dot only while an update is waiting, and installs it", async () => {
     calls.check.mockResolvedValue({ current: "0.1.0" });
     const { container, rerender } = render(<UpdateButton />);
