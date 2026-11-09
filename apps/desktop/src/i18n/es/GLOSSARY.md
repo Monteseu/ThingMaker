@@ -28,6 +28,10 @@ style as the English. Keep these terms consistent across every catalog.
 | task / step | tarea / paso |
 | plan / plan change | plan / cambio de plan |
 | goal | objetivo |
+| Ultra-Review | unchanged (name) |
+| reviewer / finding | revisor / hallazgo |
+| Chair (who writes the verdict) | presidencia |
+| cross-examination / rebuttal / verdict | contrainterrogatorio / réplica / veredicto |
 | check (verification) | comprobación |
 | computer | ordenador |
 | phone | teléfono |

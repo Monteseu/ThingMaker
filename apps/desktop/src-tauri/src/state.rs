@@ -72,6 +72,8 @@ pub struct AppState {
     pub delegation_socket: std::sync::OnceLock<thingmaker_supervisor::delegation::socket::DelegationSocket>,
     /// Big Thing's engine (ADR-010). Set once in `setup`, after delegation.
     pub engine: std::sync::OnceLock<thingmaker_supervisor::bigthing::Engine>,
+    /// Ultra-Review. Set once in `setup`, after delegation.
+    pub ultra_review: std::sync::OnceLock<thingmaker_supervisor::ultrareview::UltraReviewService>,
     /// The model each live attachment was opened on, when one was asked for.
     pub actor_models: Mutex<HashMap<String, String>>,
     /// Shared by sessions in the same tree; hooks own the cache's lifetime.
@@ -101,6 +103,7 @@ impl AppState {
             delegation: std::sync::OnceLock::new(),
             delegation_socket: std::sync::OnceLock::new(),
             engine: std::sync::OnceLock::new(),
+            ultra_review: std::sync::OnceLock::new(),
             actor_models: Mutex::new(HashMap::new()),
         })
     }

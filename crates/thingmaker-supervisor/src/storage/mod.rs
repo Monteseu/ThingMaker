@@ -16,6 +16,7 @@ pub mod odyssey;
 pub mod outbox;
 pub mod review;
 pub mod settings;
+pub mod ultrareview;
 pub mod workspaces;
 pub mod worktrees;
 

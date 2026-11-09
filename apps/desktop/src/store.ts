@@ -51,12 +51,13 @@ import type {
   ProviderVersion,
   TurnPhase,
 } from "@thingmaker/contracts";
-import { EMPTY_COMBO, JOB_EVENT, SESSION_TITLE_EVENT, type SessionTitleChange, ODYSSEY_STATE_NOTE, PROVIDERS, PROVIDER_LABELS, BIGTHING_EVENT, asConfigOptions, isEffortOption, type Combo, type JobView, type ProviderModel, type BigThingEvent, type BigThingRuntime, type NestedReport, type TeamPreset } from "@thingmaker/contracts";
-import { HANDOFF_SPLIT, handoffBrief, hasConversation, readPresets, upsertJob, upsertPreset, withoutHandoff } from "./team";
+import { EMPTY_COMBO, JOB_EVENT, ULTRA_REVIEW_EVENT, type UltraReview, type UrDecision, type UrStartRequest, SESSION_TITLE_EVENT, type SessionTitleChange, ODYSSEY_STATE_NOTE, PROVIDERS, PROVIDER_LABELS, BIGTHING_EVENT, asConfigOptions, isEffortOption, type Combo, type JobView, type ProviderModel, type BigThingEvent, type BigThingRuntime, type NestedReport, type TeamPreset, type WorkerSlot } from "@thingmaker/contracts";
+import { HANDOFF_SPLIT, handoffBrief, hasConversation, helperPresetFrom, readHelperPresets, readPresets, upsertHelperPreset, upsertJob, upsertPreset, withoutHandoff, type HelperPreset } from "./team";
 import { copiesItself, forkBranch, forkTitle, type ForkPoint } from "./fork";
 
 /** Preference keys (scope `ui`) for saved teams. */
 const TEAM_PRESETS_KEY = "teamPresets";
+const HELPER_PRESETS_KEY = "helperPresets";
 const DEFAULT_PRESET_KEY = "defaultTeamPreset";
 import { t } from "./i18n";
 import { api } from "./ipc";
@@ -135,7 +136,7 @@ export type View =
   | { kind: "teams" }
   | { kind: "integrations" };
 
-export type SessionTab = "transcript" | "files" | "changes" | "terminal" | "agents" | "context" | "artifacts" | "images" | "odyssey";
+export type SessionTab = "transcript" | "files" | "changes" | "terminal" | "agents" | "context" | "artifacts" | "images" | "odyssey" | "ultrareview";
 
 /** Every session view, in bar order. The command palette is the keyboard route
  *  to all of them, including the ones the bar keeps behind a menu or an icon,
@@ -234,12 +235,25 @@ type State = {
   teams: Record<string, Combo>;
   /** Jobs per orchestrator session (by attachment handle), oldest first. */
   jobs: Record<string, JobView[]>;
+  /** Ultra-Reviews per session, by the agent's id for it, newest first. */
+  ultraReviews: Record<string, UltraReview[]>;
+  loadUltraReviews: (host: string) => Promise<void>;
+  /** A review changed (the host's event, or a command's reply). */
+  noteUltraReview: (review: UltraReview) => void;
+  startUltraReview: (request: UrStartRequest) => Promise<boolean>;
+  cancelUltraReview: (id: string) => Promise<void>;
+  resumeUltraReview: (id: string) => Promise<void>;
+  noteOnFinding: (id: string, finding: string, text: string) => Promise<boolean>;
+  decideFinding: (id: string, finding: string, decision: UrDecision | null) => Promise<void>;
+  deleteUltraReview: (review: UltraReview) => Promise<void>;
   /** The team a new session starts with. */
   defaultCombo: Combo;
   /** Model catalogs per provider, loaded on demand for the team picker. */
   providerModels: Partial<Record<Provider, ProviderModel[]>>;
   /** Saved teams (orchestrator and workers), in name order. */
   teamPresets: TeamPreset[];
+  /** Saved helpers, to add to any team. */
+  helperPresets: HelperPreset[];
   /** The preset a new session starts with, when one is chosen. */
   defaultPresetId: string | null;
   drafts: Record<string, string>;
@@ -410,6 +424,12 @@ type State = {
   loadTeamPresets: () => Promise<void>;
   saveTeamPreset: (preset: TeamPreset) => Promise<void>;
   deleteTeamPreset: (id: string) => Promise<void>;
+  loadHelperPresets: () => Promise<void>;
+  /** Saves a team's helper as a preset (updating the one with its name); null when it failed. */
+  saveHelperPreset: (worker: WorkerSlot) => Promise<HelperPreset | null>;
+  deleteHelperPreset: (id: string) => Promise<void>;
+  /** Saves helpers read from a file, all at once. */
+  addHelperPresets: (presets: HelperPreset[]) => Promise<boolean>;
   /** Saves teams read from a file, all at once. */
   addTeamPresets: (presets: TeamPreset[]) => Promise<boolean>;
   /** Makes a preset (or none) what a new session starts with. */
@@ -891,12 +911,14 @@ export const useStore = create<State>((set, get) => ({
   drafts: {},
   teams: {},
   jobs: {},
+  ultraReviews: {},
   defaultCombo: EMPTY_COMBO,
   providerModels: {},
   pendingProvider: {},
   continuations: {},
   continuationHistory: {},
   teamPresets: [],
+  helperPresets: [],
   defaultPresetId: null,
   signIn: null,
   settings: null,
@@ -966,6 +988,7 @@ export const useStore = create<State>((set, get) => ({
       setInterval(readUsage, 5 * 60_000);
       void get().loadTeamPresets();
       void listen<JobView>(JOB_EVENT, (event) => get().noteJob(event.payload));
+      void listen<UltraReview>(ULTRA_REVIEW_EVENT, (event) => get().noteUltraReview(event.payload));
       void listen<BigThingEvent>(BIGTHING_EVENT, (event) => get().noteBigThing(event.payload));
       void listen<SessionTitleChange>(SESSION_TITLE_EVENT, (event) => get().noteSessionTitle(event.payload));
       void listen(CLOSE_REQUESTED_EVENT, async () => {
@@ -2331,6 +2354,84 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
+  async loadUltraReviews(host) {
+    try {
+      const reviews = await api.ultraReviewList(host);
+      set({ ultraReviews: { ...get().ultraReviews, [host]: reviews } });
+    } catch {
+      // Ultra-Review is unavailable (no team service): the tab says so on its own.
+    }
+  },
+
+  noteUltraReview(review) {
+    const list = get().ultraReviews[review.host] ?? [];
+    const next = list.some((entry) => entry.id === review.id) ? list.map((entry) => (entry.id === review.id ? review : entry)) : [review, ...list];
+    const previous = list.find((entry) => entry.id === review.id);
+    set({ ultraReviews: { ...get().ultraReviews, [review.host]: next } });
+    // Like any finished turn: the kind of event and the folder, never content.
+    const settings = get().settings;
+    if (previous?.status === "running" && review.status === "done" && settings && shouldNotify(settings, "completed", review.workspaceId)) {
+      const workspace = get().workspaces.find((entry) => entry.id === review.workspaceId);
+      void notify("completed", workspace ? basenameOf(workspace.displayPath) : t("a workspace"));
+    }
+  },
+
+  async startUltraReview(request) {
+    set({ busy: t("Checking out the change for the reviewers"), error: null });
+    try {
+      get().noteUltraReview(await api.ultraReviewStart(request));
+      return true;
+    } catch (error) {
+      set({ error: asError(error) });
+      return false;
+    } finally {
+      set({ busy: null });
+    }
+  },
+
+  async cancelUltraReview(id) {
+    try {
+      await api.ultraReviewCancel(id);
+    } catch (error) {
+      set({ error: asError(error) });
+    }
+  },
+
+  async resumeUltraReview(id) {
+    try {
+      get().noteUltraReview(await api.ultraReviewResume(id));
+    } catch (error) {
+      set({ error: asError(error) });
+    }
+  },
+
+  async noteOnFinding(id, finding, text) {
+    try {
+      get().noteUltraReview(await api.ultraReviewNote(id, finding, text));
+      return true;
+    } catch (error) {
+      set({ error: asError(error) });
+      return false;
+    }
+  },
+
+  async decideFinding(id, finding, decision) {
+    try {
+      get().noteUltraReview(await api.ultraReviewDecide(id, finding, decision));
+    } catch (error) {
+      set({ error: asError(error) });
+    }
+  },
+
+  async deleteUltraReview(review) {
+    try {
+      await api.ultraReviewDelete(review.id);
+      set({ ultraReviews: { ...get().ultraReviews, [review.host]: (get().ultraReviews[review.host] ?? []).filter((entry) => entry.id !== review.id) } });
+    } catch (error) {
+      set({ error: asError(error) });
+    }
+  },
+
   async openWorker(job) {
     const handleId = job.workerSession;
     if (!handleId) return;
@@ -2578,6 +2679,49 @@ export const useStore = create<State>((set, get) => ({
       set({ teamPresets: list });
       // The default preset's workers are what the host starts a session with.
       if (get().defaultPresetId === saved.id) await get().saveDefaultCombo(saved.combo);
+    } catch (error) {
+      set({ error: asError(error) });
+    }
+  },
+
+  async loadHelperPresets() {
+    try {
+      set({ helperPresets: readHelperPresets(await api.prefGet<unknown>(HELPER_PRESETS_KEY)) });
+    } catch {
+      // None saved yet.
+    }
+  },
+
+  async saveHelperPreset(worker) {
+    const preset = helperPresetFrom(worker, get().helperPresets);
+    const list = upsertHelperPreset(get().helperPresets, preset);
+    try {
+      await api.prefSet(HELPER_PRESETS_KEY, list);
+      set({ helperPresets: list });
+      return preset;
+    } catch (error) {
+      set({ error: asError(error) });
+      return null;
+    }
+  },
+
+  async addHelperPresets(presets) {
+    const list = presets.reduce((all, preset) => upsertHelperPreset(all, preset), get().helperPresets);
+    try {
+      await api.prefSet(HELPER_PRESETS_KEY, list);
+      set({ helperPresets: list });
+      return true;
+    } catch (error) {
+      set({ error: asError(error) });
+      return false;
+    }
+  },
+
+  async deleteHelperPreset(id) {
+    const list = get().helperPresets.filter((preset) => preset.id !== id);
+    try {
+      await api.prefSet(HELPER_PRESETS_KEY, list);
+      set({ helperPresets: list });
     } catch (error) {
       set({ error: asError(error) });
     }

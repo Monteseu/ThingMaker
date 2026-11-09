@@ -7,5 +7,6 @@ import { logic } from "./logic";
 import { session } from "./session";
 import { settings } from "./settings";
 import { shell } from "./shell";
+import { ultrareview } from "./ultrareview";
 
-export const es: Record<string, string> = { ...logic, ...session, ...settings, ...shell, ...bigthing };
+export const es: Record<string, string> = { ...logic, ...session, ...settings, ...shell, ...bigthing, ...ultrareview };

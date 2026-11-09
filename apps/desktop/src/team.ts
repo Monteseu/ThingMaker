@@ -165,6 +165,42 @@ export function upsertPreset(list: TeamPreset[], preset: TeamPreset): TeamPreset
   return [...list.filter((existing) => existing.id !== preset.id), preset].sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** A saved helper: everything a team's helper is (model, effort, what it
+ *  does, when to use it, its own instructions), ready to add to any team. */
+export type HelperPreset = { id: string; name: string; worker: WorkerSlot; updatedAt: number };
+
+/** A helper saved as a preset under its own name; saving a name that is
+ *  already a preset updates that one. */
+export function helperPresetFrom(worker: WorkerSlot, existing: HelperPreset[]): HelperPreset {
+  const name = worker.name.trim() || t("Helper");
+  const same = existing.find((preset) => preset.name.toLowerCase() === name.toLowerCase());
+  return { id: same?.id ?? `helper-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`, name, worker: { ...worker, name }, updatedAt: Date.now() };
+}
+
+/** A preset as a new helper on a team, renamed if the team has its name. */
+export function workerFromPreset(preset: HelperPreset, taken: string[]): WorkerSlot {
+  return { ...preset.worker, capabilities: [...preset.worker.capabilities], name: uniqueName(preset.name, taken) };
+}
+
+/** Inserts or replaces a helper preset by id, in name order. */
+export function upsertHelperPreset(list: HelperPreset[], preset: HelperPreset): HelperPreset[] {
+  return [...list.filter((existing) => existing.id !== preset.id), preset].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Reads helper presets back from storage, dropping anything that is not one. */
+export function readHelperPresets(value: unknown): HelperPreset[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (entry): entry is HelperPreset =>
+      typeof entry === "object" &&
+      entry !== null &&
+      typeof (entry as HelperPreset).id === "string" &&
+      typeof (entry as HelperPreset).name === "string" &&
+      typeof (entry as HelperPreset).worker?.provider === "string" &&
+      Array.isArray((entry as HelperPreset).worker?.capabilities),
+  );
+}
+
 /** Reads presets back from storage, dropping anything that is not one. */
 export function readPresets(value: unknown): TeamPreset[] {
   if (!Array.isArray(value)) return [];

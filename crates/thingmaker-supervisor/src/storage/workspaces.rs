@@ -253,6 +253,7 @@ impl Storage {
             conn.execute("DELETE FROM review_baselines WHERE workspace_id = ?1", params![id])?;
             conn.execute("DELETE FROM artifacts WHERE workspace_id = ?1", params![id])?;
             conn.execute("DELETE FROM worktrees WHERE workspace_id = ?1", params![id])?;
+            conn.execute("DELETE FROM ultra_reviews WHERE workspace_id = ?1", params![id])?;
             conn.execute("DELETE FROM sessions WHERE workspace_id = ?1", params![id])?;
             let removed = conn.execute("DELETE FROM workspaces WHERE id = ?1", params![id])?;
             if removed == 0 {

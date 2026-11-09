@@ -35,6 +35,9 @@ Flags:
   --echo-steer     a steer is echoed back as a user message, as some agents do
   --legacy-ids     answers as 0.84.0 did, listing Fable as `claude-fable-5-1`
                    (0.89 calls it `fable`)
+  --review         plays an Ultra-Review reviewer: Reviewer A reports one
+                   finding, the others none; every cross-examination confirms,
+                   every rebuttal defends, and the Chair confirms everything
   --follow-plan    plays a Big Thing orchestrator: answers a planning prompt
                    with a plan block, a briefing with an acknowledgement, and a
                    continuation by writing a file, running the milestone's
@@ -52,6 +55,7 @@ HANG_IN_TOOL = "--hang-in-tool" in sys.argv
 hanging = {}
 ASK = "--ask" in sys.argv
 FOLLOW = "--follow-plan" in sys.argv
+REVIEW = "--review" in sys.argv
 REFUSE_FIRST = "--refuse-first" in sys.argv
 ECHO = "--echo" in sys.argv
 NO_STEER = "--no-steer" in sys.argv
@@ -204,6 +208,24 @@ def run_turn(session_id):
     })
 
 
+def review_reply(text):
+    """An Ultra-Review turn's JSON block, by the phase the prompt names."""
+    import re
+    asked = sorted(set(re.findall(r"### (F\d+) ·", text)), key=lambda f: int(f[1:]))
+    if "You are also the Chair" in text:
+        items = [{"finding": f, "outcome": "confirmed", "severity": "medium", "summary": "It holds up.", "fix": "Fix it."} for f in asked]
+        block = {"verdict": {"recommendation": "approve_with_fixes" if items else "approve", "headline": "Reviewed by the mock panel", "summary": "Done.", "findings": items}}
+    elif "Rebuttal, round" in text:
+        block = {"rebuttals": [{"finding": f, "action": "defend", "argument": "It stands."} for f in asked]}
+    elif "Cross-examination, round" in text:
+        block = {"replies": [{"finding": f, "stance": "confirm", "argument": "Checked it.", "evidence": "a.txt:1"} for f in asked]}
+    elif "You are Reviewer A" in text:
+        block = {"findings": [{"title": "a.txt says two", "severity": "low", "file": "a.txt", "line": 1, "claim": "It should say one.", "evidence": "a.txt:1"}]}
+    else:
+        block = {"findings": []}
+    return "Reviewed.\n```json\n" + json.dumps(block) + "\n```"
+
+
 def prompt_text(params):
     return "\n".join(block.get("text", "") for block in (params.get("prompt") or []) if isinstance(block, dict))
 
@@ -327,6 +349,9 @@ for line in sys.stdin:
                     "data": {"errorKind": "rate_limit"},
                 },
             })
+        elif REVIEW:
+            say(params.get("sessionId"), review_reply(prompt_text(params)))
+            send({"jsonrpc": "2.0", "id": request, "result": {"stopReason": "end_turn"}})
         elif FOLLOW:
             follow_turn(params.get("sessionId"), prompt_text(params))
             send({"jsonrpc": "2.0", "id": request, "result": {"stopReason": "end_turn"}})

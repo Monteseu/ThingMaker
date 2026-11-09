@@ -155,6 +155,12 @@ mod tests {
 
 use std::io::Write as _;
 
+/// Runs `git` in `root` with ThingMaker's safe defaults (no hooks, no pager,
+/// no prompts) and returns its output, or its error as a message.
+pub fn run(root: &Path, args: &[&str]) -> Result<String, DesktopError> {
+    git_ok(root, args)
+}
+
 fn git_ok(root: &Path, args: &[&str]) -> Result<String, DesktopError> {
     let output = git(root, args)?;
     if !output.status.success() {
