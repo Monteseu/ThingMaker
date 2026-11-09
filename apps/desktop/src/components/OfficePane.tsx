@@ -14,7 +14,7 @@ import { PROVIDER_LABELS } from "@thingmaker/contracts";
 import { t } from "../i18n";
 import { OFFICE_WIDTH, clampOfficeWidth, fitImage, setOfficeImage, setOfficeOpen, setOfficeWidth, useOfficeImage, useOfficeOpen, useOfficeWidth, type OfficeSlot } from "../officePrefs";
 import { useStore } from "../store";
-import { buildCrew } from "./crew";
+import { buildCrew, crewTicks } from "./crew";
 import { IconChevron, IconImage, IconOffice } from "./icons";
 import { OfficeScene } from "./OfficeScene";
 import { boardPlan } from "./OfficeBoard";
@@ -128,12 +128,15 @@ export function OfficePane({ sessionId }: { sessionId: string }) {
   const foreground = !!projection && (projection.foreground === "running" || projection.foreground === "cancelling" || projection.foreground === "awaiting_user");
   const openJobs = (jobs ?? []).filter((job) => job.status === "starting" || job.status === "running" || job.status === "waiting");
   const busy = foreground || openJobs.length > 0;
+  // Finished runs keep their desks a few minutes, then fold away: the clock
+  // keeps going until they have.
+  const ticking = busy || crewTicks(jobs, Date.now());
 
   useEffect(() => {
-    if (!busy) return;
+    if (!ticking) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, [busy]);
+  }, [ticking]);
 
   if (!session || !projection) return null;
 
