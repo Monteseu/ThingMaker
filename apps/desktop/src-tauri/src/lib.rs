@@ -126,6 +126,7 @@ pub fn run() {
             }
             // Big Thing runs in the host, whether or not a window is open.
             commands::bigthing::start(app.handle());
+            commands::ultrareview::start(app.handle());
             // Holds off idle sleep while anything above is working.
             keep_awake::start(app.handle());
             // Phone access through the Cloudflare relay; off until turned on in Settings.
@@ -269,6 +270,17 @@ pub fn run() {
             commands::mcp::mcp_install,
             commands::mcp::mcp_remove,
             commands::mcp::mcp_test,
+            commands::ultrareview::ultra_review_list,
+            commands::ultrareview::ultra_review_start,
+            commands::ultrareview::ultra_review_cancel,
+            commands::ultrareview::ultra_review_resume,
+            commands::ultrareview::ultra_review_note,
+            commands::ultrareview::ultra_review_decide,
+            commands::ultrareview::ultra_review_delete,
+            commands::ultrareview::ultra_review_pull_requests,
+            commands::ultrareview::ultra_review_markdown,
+            commands::ultrareview::ultra_review_post,
+            commands::ultrareview::ultra_review_track_record,
             commands::bigthing::bigthing_start,
             commands::bigthing::bigthing_pause,
             commands::bigthing::bigthing_tick,

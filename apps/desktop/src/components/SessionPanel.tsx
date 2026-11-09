@@ -23,6 +23,7 @@ import { ApkCard, apksNamedIn } from "./ApkCard";
 import { docsNamedIn, docsWrittenBy } from "../markdownDocs";
 import { ImagesPane } from "./ImagesPane";
 import { OdysseyPane } from "./OdysseyPane";
+import { UltraReviewPane, useUltraReviewLabel } from "./UltraReview";
 import { BigThingBand, BigThingTurnCard, SideNotesCard } from "./BigThingLinks";
 import { BackgroundTasksButton } from "./BackgroundTasks";
 import { bigThingTurnOf, splitSideNotes, userMessageText } from "../bigThingTurns";
@@ -659,6 +660,7 @@ export function SessionPanel({ sessionId }: { sessionId: string }) {
   const setTab = useStore((s) => s.setSessionTab);
   // A document the agent loaded into Big Thing waits there until the tab is opened.
   const docWaiting = useStore((s) => Boolean(s.bigThingDoc[sessionId])) && tab !== "odyssey";
+  const ultraReviewLabel = useUltraReviewLabel(sessionId);
   const storeSearchOpen = useStore((s) => s.transcriptSearchOpen);
   const searchOpen = storeSearchOpen;
   const setSearchOpen = useStore((s) => s.setTranscriptSearchOpen);
@@ -943,7 +945,7 @@ export function SessionPanel({ sessionId }: { sessionId: string }) {
   const isWorker = useStore((s) => isWorkerIn(s, sessionId, s.sessions[sessionId]));
   const setSessionTab = useStore((s) => s.setSessionTab);
   useEffect(() => {
-    if (isWorker && tab === "odyssey") setSessionTab("transcript");
+    if (isWorker && (tab === "odyssey" || tab === "ultrareview")) setSessionTab("transcript");
   }, [isWorker, tab, setSessionTab]);
   const cardImages = useMemo(
     () => (session ? assignImages(session.projection.cards, session.projection.toolCalls, workspaceRoot) : new Map<string, ImageRef[]>()),
@@ -1043,6 +1045,8 @@ export function SessionPanel({ sessionId }: { sessionId: string }) {
       ? []
       : [
           { id: "odyssey" as const, label: odysseyLabel, ...(docWaiting ? { waiting: t("A document is waiting for you in Big Thing") } : {}) },
+          // Not on the phone: a review is set up and read at the computer.
+          ...(IS_REMOTE ? [] : [{ id: "ultrareview" as const, label: ultraReviewLabel }]),
         ]),
   ];
 
@@ -1229,6 +1233,7 @@ export function SessionPanel({ sessionId }: { sessionId: string }) {
       {tab === "artifacts" && <ArtifactsPane agentSessionId={session.snapshot.agentSessionId} workspaceId={session.workspaceId} />}
       {tab === "images" && <ImagesPane sessionId={sessionId} />}
       {tab === "odyssey" && <OdysseyPane sessionId={sessionId} />}
+      {tab === "ultrareview" && <UltraReviewPane sessionId={sessionId} />}
       <footer className="composer">
         {/* Between the transcript and the prompt, so anything still running
             stays visible however far the transcript has scrolled. */}
@@ -1237,7 +1242,7 @@ export function SessionPanel({ sessionId }: { sessionId: string }) {
         {/* The Big Thing view has no use for a prompt box: the run submits its
             own turns. The activity strip above stays, because background work
             outliving a turn is exactly what it is for. */}
-        {tab !== "odyssey" && (
+        {tab !== "odyssey" && tab !== "ultrareview" && (
         <>
         <QueueStrip active={active} canSteer={canSteer} queue={projection.queue} sessionId={sessionId} />
         <NestedBanner sessionId={sessionId} />

@@ -53,6 +53,7 @@ pub mod bigthing;
 pub mod supervisor;
 pub mod terminal;
 pub mod transport;
+pub mod ultrareview;
 pub mod workspace;
 
 pub use error::{DesktopError, ErrorCode, RetryPolicy};

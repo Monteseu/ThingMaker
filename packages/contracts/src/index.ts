@@ -1038,6 +1038,89 @@ export type BigThingEvent =
 
 export const BIGTHING_EVENT = "thingmaker://bigthing";
 
+// ---------------------------------------------------------------------------
+// Ultra-Review: a panel of models from several providers reviews one change,
+// then cross-examines its own findings (crates/.../ultrareview).
+// ---------------------------------------------------------------------------
+
+export const ULTRA_REVIEW_EVENT = "thingmaker://ultra-review";
+
+export type UrSeverity = "low" | "medium" | "high" | "critical";
+export type UrLens = "architecture" | "correctness" | "tests" | "security" | "performance" | "readability" | "devils_advocate" | "general";
+export const UR_LENSES: readonly UrLens[] = ["architecture", "correctness", "tests", "security", "performance", "readability", "devils_advocate", "general"] as const;
+
+export type UrTarget = {
+  kind: "pr" | "branch";
+  number?: number;
+  title: string;
+  url?: string;
+  baseRef: string;
+  headRef: string;
+  baseSha: string;
+  headSha: string;
+  files: number;
+  additions: number;
+  deletions: number;
+};
+
+export type UrReviewer = {
+  /** "A", "B", …: the only name other reviewers see. */
+  id: string;
+  provider: Provider;
+  model?: string;
+  effort?: string;
+  lens: UrLens;
+  focus?: string;
+  chair: boolean;
+  absent: boolean;
+  done?: string;
+  lastJob?: string;
+};
+
+export type UrConfig = { quick: boolean; rounds: number; requireEvidence: boolean; allowTests: boolean };
+
+export type UrEntryKind = "claim" | "confirm" | "challenge" | "refine" | "defend" | "accept" | "withdraw" | "note";
+export type UrEntry = { by: string; kind: UrEntryKind; text: string; evidence?: string; severity?: UrSeverity; fix?: string; round: number; at: number };
+export type UrStanding = "open" | "confirmed" | "contested" | "challenged" | "withdrawn";
+export type UrFinding = { id: string; author: string; title: string; severity: UrSeverity; file?: string; line?: number; thread: UrEntry[]; standing: UrStanding; settled: boolean };
+
+export type UrOutcome = "confirmed" | "refuted" | "split" | "withdrawn";
+export type UrDecision = "fix" | "leave";
+export type UrVerdictItem = { finding: string; outcome: UrOutcome; severity?: UrSeverity; summary: string; fix?: string; for?: string; against?: string; decision?: UrDecision };
+export type UrRecommendation = "approve" | "approve_with_fixes" | "request_changes";
+export type UrVerdict = { recommendation: UrRecommendation; headline: string; summary: string; items: UrVerdictItem[]; byChair: boolean };
+
+export type UrPhase = "blind" | "cross" | "rebuttal" | "verdict" | "done";
+export type UrStatus = "running" | "done" | "failed" | "cancelled" | "interrupted";
+
+export type UltraReview = {
+  id: string;
+  workspaceId: string;
+  host: string;
+  target: UrTarget;
+  config: UrConfig;
+  reviewers: UrReviewer[];
+  findings: UrFinding[];
+  verdict?: UrVerdict;
+  phase: UrPhase;
+  round: number;
+  status: UrStatus;
+  error?: string;
+  root: string;
+  log: string[];
+  createdAt: number;
+  updatedAt: number;
+  finishedAt?: number;
+};
+
+export type UrSeat = { provider: Provider; model?: string; effort?: string; lens: UrLens; focus?: string; chair: boolean };
+export type UrStartRequest = { workspaceId: string; host: string; kind: "pr" | "branch"; number?: number; seats: UrSeat[]; config: UrConfig };
+export type UrPullRequest = { number: number; title: string; headRefName: string; baseRefName: string; url: string; additions: number; deletions: number; changedFiles: number; isDraft: boolean; author?: { login: string } | null; state?: string };
+export type UrSeatRecord = { provider: Provider; model?: string; lens: UrLens; raised: number; confirmed: number; reviews: number };
+
+/** The key a review's reviewers run under, as their jobs' `orchestrator`. */
+export const ultraReviewKey = (id: string) => `ultra-review:${id}`;
+
 /** What a nested fork said, held for the session it was copied from: context
  *  for that session's next message, never a prompt of its own. */
 export type NestedReport = { forkAgentSessionId: string; title: string; text: string; atUnixMs: number };
@@ -1563,6 +1646,17 @@ export const COMMANDS = {
   mcpInstall: "mcp_install",
   mcpRemove: "mcp_remove",
   mcpTest: "mcp_test",
+  ultraReviewList: "ultra_review_list",
+  ultraReviewStart: "ultra_review_start",
+  ultraReviewCancel: "ultra_review_cancel",
+  ultraReviewResume: "ultra_review_resume",
+  ultraReviewNote: "ultra_review_note",
+  ultraReviewDecide: "ultra_review_decide",
+  ultraReviewDelete: "ultra_review_delete",
+  ultraReviewPullRequests: "ultra_review_pull_requests",
+  ultraReviewMarkdown: "ultra_review_markdown",
+  ultraReviewPost: "ultra_review_post",
+  ultraReviewTrackRecord: "ultra_review_track_record",
   bigthingStart: "bigthing_start",
   bigthingPause: "bigthing_pause",
   bigthingTick: "bigthing_tick",

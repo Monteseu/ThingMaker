@@ -278,6 +278,20 @@ pub struct DelegateArgs {
     /// A finished job whose worker should take this as a follow-up.
     #[serde(default)]
     pub continue_job: Option<String>,
+    /// Only the named worker may take the job: a limit is waited out rather
+    /// than the job moving to another worker. Set by ThingMaker's own
+    /// services (Ultra-Review's reviewers), never by an agent's tool call.
+    #[serde(skip)]
+    pub pinned: bool,
+}
+
+/// The team a job routes against: for a pinned job, its own worker alone, so
+/// the router has nobody to move it to.
+fn team_for(combo: &Combo, args: &DelegateArgs) -> Combo {
+    match args.worker.as_deref().filter(|_| args.pinned).and_then(|name| combo.worker(name)) {
+        Some(named) => Combo { workers: vec![named.clone()], ..combo.clone() },
+        None => combo.clone(),
+    }
 }
 
 struct Orchestrator {
@@ -533,7 +547,7 @@ impl Delegation {
             };
             let root = orchestrator.root.clone();
             let orchestrator_provider = orchestrator.provider;
-            let combo = orchestrator.combo.clone();
+            let combo = team_for(&orchestrator.combo, &args);
             let running = state
                 .order
                 .get(session)
@@ -666,7 +680,7 @@ impl Delegation {
                         state
                             .orchestrators
                             .get(&spec.orchestrator)
-                            .map(|orchestrator| route(&orchestrator.combo, args.worker.as_deref(), args.capability.as_deref(), &state.quotas, &excluded, now_unix_ms()))
+                            .map(|orchestrator| route(&team_for(&orchestrator.combo, &args), args.worker.as_deref(), args.capability.as_deref(), &state.quotas, &excluded, now_unix_ms()))
                     };
                     match routed {
                         Some(Ok(next)) => {
@@ -758,11 +772,14 @@ impl Delegation {
                         excluded.push(spec.slot.provider);
                         let next = {
                             let state = self.state();
-                            state.orchestrators.get(&spec.orchestrator).map(|orchestrator| match args.capability.as_deref() {
-                                Some(capability) => route(&orchestrator.combo, None, Some(capability), &state.quotas, &excluded, now_unix_ms()),
-                                // By the refused worker's name: the router finds
-                                // one that shares a capability with it.
-                                None => route(&orchestrator.combo, Some(&spec.slot.name), None, &state.quotas, &excluded, now_unix_ms()),
+                            state.orchestrators.get(&spec.orchestrator).map(|orchestrator| {
+                                let team = team_for(&orchestrator.combo, &args);
+                                match args.capability.as_deref() {
+                                    Some(capability) => route(&team, None, Some(capability), &state.quotas, &excluded, now_unix_ms()),
+                                    // By the refused worker's name: the router finds
+                                    // one that shares a capability with it.
+                                    None => route(&team, Some(&spec.slot.name), None, &state.quotas, &excluded, now_unix_ms()),
+                                }
                             })
                         };
                         if let Some(Ok(next)) = next {
@@ -1307,6 +1324,21 @@ End with a short report as your final message, a few lines at most: what you did
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_pinned_job_routes_against_its_own_worker_alone() {
+        let slot = |name: &str, provider| WorkerSlot { name: name.into(), provider, model: None, effort: None, capabilities: Vec::new(), note: None, prompt: None };
+        let combo = Combo { workers: vec![slot("Reviewer A", Provider::Claude), slot("Reviewer B", Provider::Codex)], native_subagents: false };
+        let pinned = DelegateArgs { task: "review".into(), worker: Some("Reviewer A".into()), pinned: true, ..DelegateArgs::default() };
+        assert_eq!(team_for(&combo, &pinned).workers.iter().map(|w| w.name.as_str()).collect::<Vec<_>>(), ["Reviewer A"]);
+        // With Claude spent, the router has nobody to move it to: it waits.
+        let mut quotas = QuotaBook::default();
+        quotas.note_refusal(Provider::Claude, 1_000);
+        assert!(route(&team_for(&combo, &pinned), Some("Reviewer A"), None, &quotas, &[], 1_000).is_err());
+        assert!(route(&combo, Some("Reviewer A"), None, &quotas, &[], 1_000).unwrap().rerouted_from.is_some(), "unpinned, it would move");
+        let free = DelegateArgs { pinned: false, ..pinned };
+        assert_eq!(team_for(&combo, &free).workers.len(), 2);
+    }
 
     #[test]
     fn a_worker_is_told_the_task_stands_alone_and_its_last_message_is_the_report() {

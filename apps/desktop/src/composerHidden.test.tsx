@@ -17,7 +17,7 @@ const styles = readFileSync(resolve(here, "styles.css"), "utf8");
 
 describe("hiding the prompt on the Big Thing view", () => {
   it("hides the prompt box and everything in it", () => {
-    const guard = panel.indexOf('{tab !== "odyssey" && (');
+    const guard = panel.indexOf('{tab !== "odyssey" && tab !== "ultrareview" && (');
     expect(guard).toBeGreaterThan(0);
     // The guard wraps the prompt card, so the attachments strip, the model
     // picker and "stop session" go with it rather than floating alone.
@@ -27,7 +27,7 @@ describe("hiding the prompt on the Big Thing view", () => {
   it("leaves the activity strip outside the guard", () => {
     // Moving it inside would undo "something is visible while background work
     // runs", which is the only reason the strip sits in the footer at all.
-    expect(panel.indexOf("<ActivityBar")).toBeLessThan(panel.indexOf('{tab !== "odyssey" && ('));
+    expect(panel.indexOf("<ActivityBar")).toBeLessThan(panel.indexOf('{tab !== "odyssey" && tab !== "ultrareview" && ('));
   });
 
   it("drops the footer padding when there is no prompt box to frame", () => {

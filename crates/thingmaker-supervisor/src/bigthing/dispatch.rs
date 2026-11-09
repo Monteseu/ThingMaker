@@ -166,7 +166,7 @@ impl Engine {
             }
             // A capability no worker has goes to whoever the router picks.
             let capability = step.capability.clone().filter(|capability| combo.workers.iter().any(|worker| worker.has(capability)));
-            let args = DelegateArgs { task: worker_task(loaded.goal.plan_path.as_deref(), &loaded.milestones, index, task_index, None), worker: None, capability, files: Vec::new(), continue_job: None };
+            let args = DelegateArgs { task: worker_task(loaded.goal.plan_path.as_deref(), &loaded.milestones, index, task_index, None), worker: None, capability, files: Vec::new(), continue_job: None, pinned: false };
             match delegation.delegate(&live.handle, args) {
                 Ok(job) => {
                     let slug = task_slug(index, task_index, &step.title);
@@ -258,7 +258,7 @@ impl Engine {
                         storage.step_set_state(&step.id, StepState::Pending, Some("reworked after review"))
                     });
                     self.journal(&goal.id, JournalKind::Check, Some(&milestone.id), &format!("{} asked for changes to task {number}", job.worker), Some(&changes));
-                    let args = DelegateArgs { task: worker_task(goal.plan_path.as_deref(), &loaded.milestones, milestone_index, task_index, Some(&changes)), worker: None, capability: step.capability.clone(), files: Vec::new(), continue_job: None };
+                    let args = DelegateArgs { task: worker_task(goal.plan_path.as_deref(), &loaded.milestones, milestone_index, task_index, Some(&changes)), worker: None, capability: step.capability.clone(), files: Vec::new(), continue_job: None, pinned: false };
                     if let Some(live) = self.live_for(goal, false).await
                         && let Some(delegation) = &self.inner.delegation
                         && let Ok(rework) = delegation.delegate(&live.handle, args)
@@ -313,7 +313,7 @@ impl Engine {
                     && let Some(delegation) = &self.inner.delegation
                     && let Some(reviewer) = pick_reviewer(delegation.combo(&live.handle).unwrap_or_default().workers.as_slice(), job.provider)
                 {
-                    let args = DelegateArgs { task: review_task(milestone, milestone_index, task_index, job), worker: Some(reviewer), capability: None, files: Vec::new(), continue_job: None };
+                    let args = DelegateArgs { task: review_task(milestone, milestone_index, task_index, job), worker: Some(reviewer), capability: None, files: Vec::new(), continue_job: None, pinned: false };
                     if let Ok(review) = delegation.delegate(&live.handle, args) {
                         let _ = self.db(|storage| {
                             storage.step_set_review(&step.id, Some(&format!("{REVIEWING}:{}", review.id)))?;
