@@ -263,6 +263,23 @@ class MainActivity : Activity() {
     private fun socketEvent(id: String, kind: String, data: String) =
         toPage("window.__thingmakerSocket && window.__thingmakerSocket(${JSONObject.quote(id)}, '$kind', ${JSONObject.quote(data)})")
 
+    /**
+     * A message from the computer. A big one goes over in pieces the page
+     * joins: quoting it whole into one script took three copies of it at
+     * once and ran the app out of memory.
+     */
+    private fun socketMessage(id: String, text: String) {
+        var start = 0
+        while (text.length - start > MESSAGE_PIECE) {
+            var end = start + MESSAGE_PIECE
+            // Never split a surrogate pair between pieces.
+            if (Character.isHighSurrogate(text[end - 1])) end--
+            socketEvent(id, "part", text.substring(start, end))
+            start = end
+        }
+        socketEvent(id, "message", if (start == 0) text else text.substring(start))
+    }
+
     private fun answer(id: String, value: Any?) {
         val json = when (value) {
             null -> "null"
@@ -381,7 +398,7 @@ class MainActivity : Activity() {
                     webSocket.send(pairing.hello())
                     socketEvent(id, "open", "")
                 }
-                override fun onMessage(webSocket: WebSocket, text: String) = socketEvent(id, "message", text)
+                override fun onMessage(webSocket: WebSocket, text: String) = socketMessage(id, text)
                 override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                     webSocket.close(1000, null)
                 }
@@ -500,6 +517,8 @@ class MainActivity : Activity() {
         private const val MAX_FILES = 8
         /** The computer takes attachments up to 10 MiB. */
         private const val MAX_ATTACHMENT = 10 * 1024 * 1024
+        /** Characters per piece of a big socket message; see `socketMessage`. */
+        private const val MESSAGE_PIECE = 256 * 1024
         /** Images larger than this are re-encoded before they are sent. */
         private const val SMALL_ENOUGH = 700 * 1024
         private const val MAX_SIDE = 2048
