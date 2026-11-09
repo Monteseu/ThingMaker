@@ -5933,6 +5933,49 @@ button.odyssey-task-title svg {
   background: var(--accent-soft);
 }
 
+.chart-presets {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.chart-presets-cap {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.chart-presets-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+}
+.chart-preset {
+  position: relative;
+  display: grid;
+}
+.chart-preset .chart-pick {
+  gap: 4px;
+  padding-right: 28px;
+}
+.chart-preset .chart-pick-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.chart-preset-delete {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  opacity: 0;
+}
+.chart-preset:hover .chart-preset-delete,
+.chart-preset-delete:focus-visible {
+  opacity: 1;
+}
+
 .chart-picker-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));

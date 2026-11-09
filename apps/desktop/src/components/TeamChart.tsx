@@ -7,10 +7,12 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { ORCHESTRATOR_PROVIDERS, PROVIDERS, PROVIDER_LABELS, WORKER_CAPABILITIES, type Combo, type OrchestratorChoice, type Provider, type ProviderModel, type WorkerSlot } from "@thingmaker/contracts";
+import { api } from "../ipc";
 import { useStore } from "../store";
+import { workerFromPreset, type HelperPreset } from "../team";
 import { ROLE_IDS, modelName, roleEffort, roleOf, roleWorker, suggestModel, usableProviders, withRole, type Catalogs, type RoleId } from "../teamRoles";
 import { ProviderLogo } from "./ProviderLogo";
-import { IconAgents, IconBolt, IconCode, IconDoc, IconEyeCheck, IconPalette, IconPlus, IconSearch } from "./icons";
+import { IconAgents, IconBolt, IconCode, IconDoc, IconEyeCheck, IconPalette, IconPlus, IconSearch, IconX } from "./icons";
 import { t } from "../i18n";
 
 export function roleLabel(role: RoleId | null): string {
@@ -127,6 +129,7 @@ function ModelPicker({
   onRole,
   onPick,
   onCancel,
+  onPreset,
 }: {
   picking: Picking;
   catalogs: Catalogs;
@@ -137,6 +140,7 @@ function ModelPicker({
   onRole: (role: RoleId) => void;
   onPick: (provider: Provider, model: ProviderModel | undefined) => void;
   onCancel: () => void;
+  onPreset: (preset: HelperPreset) => void;
 }) {
   const providers = picking.kind === "lead" ? ORCHESTRATOR_PROVIDERS : PROVIDERS;
   const suggested = role ? suggestModel(role, catalogs, usable, lead) : null;
@@ -151,6 +155,7 @@ function ModelPicker({
           {t("Cancel")}
         </button>
       </header>
+      {picking.kind === "add" && <HelperPresets catalogs={catalogs} onPick={onPreset} usable={usable} />}
       {picking.kind === "add" && (
         <div aria-label={t("What it does")} className="chart-roles" role="group">
           {ROLE_IDS.map((id) => (
@@ -204,6 +209,95 @@ function ModelPicker({
   );
 }
 
+/** The saved helpers, first in "Add a helper": one click adds one as it was saved. */
+function HelperPresets({ catalogs, usable, onPick }: { catalogs: Catalogs; usable: Provider[]; onPick: (preset: HelperPreset) => void }) {
+  const presets = useStore((s) => s.helperPresets);
+  const deleteHelperPreset = useStore((s) => s.deleteHelperPreset);
+  if (presets.length === 0) return null;
+  const remove = async (preset: HelperPreset) => {
+    const confirmed = await api.confirmDialog({
+      title: t("Delete the helper preset “{name}”?", { name: preset.name }),
+      message: t("Teams that already have this helper keep it."),
+      okLabel: t("Delete"),
+      cancelLabel: t("Keep it"),
+      warning: true,
+    });
+    if (confirmed) await deleteHelperPreset(preset.id);
+  };
+  return (
+    <div aria-label={t("Helper presets")} className="chart-presets" role="group">
+      <span className="chart-presets-cap">{t("Helper presets")}</span>
+      <div className="chart-presets-grid">
+        {presets.map((preset) => {
+          const { worker } = preset;
+          const ready = usable.includes(worker.provider);
+          const role = roleOf(worker);
+          const model = modelName(catalogs, worker.provider, worker.model) ?? t("Account default");
+          return (
+            <div className="chart-preset" key={preset.id}>
+              <button aria-disabled={!ready} aria-label={`${preset.name} · ${model}${worker.effort ? ` · ${worker.effort}` : ""} · ${roleLabel(role)}`} className={`chart-pick ${ready ? "" : "off"}`} onClick={() => ready && onPick(preset)} title={worker.prompt ?? worker.note} type="button">
+                <span className="chart-pick-name">
+                  <ProviderLogo provider={worker.provider} size={16} />
+                  {preset.name}
+                  {!ready && <span className="chip small chip-warn">{t("not signed in")}</span>}
+                </span>
+                <span className="small muted">
+                  {model}
+                  {worker.effort ? ` · ${worker.effort}` : ""}
+                </span>
+                <span className="chart-tags-row">
+                  <span className="chart-role-tag">
+                    <RoleIcon role={role} size={12} />
+                    {roleLabel(role)}
+                  </span>
+                  {worker.prompt && (
+                    <span className="chart-role-tag">
+                      <IconDoc size={12} />
+                      {t("instructions")}
+                    </span>
+                  )}
+                </span>
+              </button>
+              <button aria-label={t("Delete the helper preset “{name}”", { name: preset.name })} className="icon-button chart-preset-delete" onClick={() => void remove(preset)} title={t("Delete preset")} type="button">
+                <IconX size={12} />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** Saves the selected helper as a preset under its name. */
+function SaveHelperPreset({ worker }: { worker: WorkerSlot }) {
+  const presets = useStore((s) => s.helperPresets);
+  const saveHelperPreset = useStore((s) => s.saveHelperPreset);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => {
+    if (!saved) return;
+    const timer = window.setTimeout(() => setSaved(false), 3000);
+    return () => window.clearTimeout(timer);
+  }, [saved]);
+  const name = worker.name.trim();
+  const exists = presets.some((preset) => preset.name.toLowerCase() === name.toLowerCase());
+  return (
+    <>
+      {saved && <span className="small muted">{t("Saved. It is in “Add a helper” on every team.")}</span>}
+      <button
+        className="button button-small"
+        onClick={async () => {
+          if (await saveHelperPreset(worker)) setSaved(true);
+        }}
+        title={t("Keeps its model, effort, what it does, when to use it and its own instructions")}
+        type="button"
+      >
+        {exists ? t("Update helper preset") : t("Save as helper preset")}
+      </button>
+    </>
+  );
+}
+
 function ModelButton({ provider, name, onClick }: { provider: Provider; name: string; onClick: () => void }) {
   return (
     <button className="chart-model-button" onClick={onClick} type="button">
@@ -226,6 +320,11 @@ export function TeamChart({ orchestrator, combo, onChange }: { orchestrator: Orc
   const [pickRole, setPickRole] = useState<RoleId>("coder");
   const canvas = useRef<HTMLDivElement>(null);
   const [wires, setWires] = useState<string[]>([]);
+  const loadHelperPresets = useStore((s) => s.loadHelperPresets);
+
+  useEffect(() => {
+    void loadHelperPresets();
+  }, [loadHelperPresets]);
 
   const leadModel = findModel(catalogs, orchestrator.provider, orchestrator.model);
   const leadName = modelName(catalogs, orchestrator.provider, orchestrator.model) ?? leadModel?.name ?? t("Account default");
@@ -291,6 +390,12 @@ export function TeamChart({ orchestrator, combo, onChange }: { orchestrator: Orc
       }
       setSelected(picking.index);
     }
+    setPicking(null);
+  };
+
+  const addPreset = (preset: HelperPreset) => {
+    setWorkers([...workers, workerFromPreset(preset, workers.map((entry) => entry.name))]);
+    setSelected(workers.length);
     setPicking(null);
   };
 
@@ -407,6 +512,7 @@ export function TeamChart({ orchestrator, combo, onChange }: { orchestrator: Orc
           lead={orchestrator.provider}
           onCancel={() => setPicking(null)}
           onPick={pick}
+          onPreset={addPreset}
           onRole={setPickRole}
           picking={picking}
           role={picking.kind === "add" ? pickRole : picking.kind === "worker" ? roleOf(workers[picking.index] ?? { capabilities: [] }) : null}
@@ -441,6 +547,7 @@ export function TeamChart({ orchestrator, combo, onChange }: { orchestrator: Orc
           <div className="row">
             <input aria-label={t("Helper name")} className="input chart-name-input" onChange={(event) => setWorker(selected, { ...selectedWorker, name: event.target.value })} value={selectedWorker.name} />
             <span className="composer-spacer" />
+            <SaveHelperPreset worker={selectedWorker} />
             <button
               className="button button-small"
               onClick={() => {

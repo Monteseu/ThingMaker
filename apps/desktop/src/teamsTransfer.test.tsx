@@ -19,7 +19,7 @@ const preset = (name: string): TeamPreset => ({ id: name, name, orchestrator: { 
 
 beforeEach(() => {
   for (const key of Object.keys(calls.api)) delete calls.api[key];
-  useStore.setState({ teamPresets: [preset("Art crew"), preset("Solo")] } as never);
+  useStore.setState({ teamPresets: [preset("Art crew"), preset("Solo")], helperPresets: [] } as never);
 });
 afterEach(cleanup);
 
@@ -54,5 +54,24 @@ describe("exporting and importing teams", () => {
     fireEvent.change(screen.getByLabelText("Team file to import"), { target: { files: [new File(["nope"], "x.json")] } });
     expect((await screen.findByRole("alert")).textContent).toBe("That file is not JSON.");
     expect(useStore.getState().teamPresets).toHaveLength(2);
+  });
+
+  it("exports helper presets with the teams, and imports them back as helper presets", async () => {
+    const fixer = { id: "h1", name: "Artist Fixer", worker: { name: "Artist Fixer", provider: "codex" as const, capabilities: ["image", "ui"], prompt: "Flat pastel style" }, updatedAt: 1 };
+    useStore.setState({ helperPresets: [fixer] } as never);
+    vi.mocked(api.saveTextFile).mockResolvedValue("/tmp/thingmaker-teams.json");
+    render(<TeamsTransfer onImported={() => undefined} />);
+    fireEvent.click(screen.getByRole("button", { name: "Export…" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Art crew" }));
+    fireEvent.click(screen.getByRole("button", { name: "Export 1 team and 1 helper" }));
+    await waitFor(() => expect(api.saveTextFile).toHaveBeenCalled());
+    const [, content] = vi.mocked(api.saveTextFile).mock.calls[0] as [string, string];
+    expect(JSON.parse(content).helpers.map((helper: { name: string }) => helper.name)).toEqual(["Artist Fixer"]);
+
+    useStore.setState({ helperPresets: [] } as never);
+    fireEvent.change(screen.getByLabelText("Team file to import"), { target: { files: [new File([content], "t.json")] } });
+    expect(await screen.findByText(/Imported 1 team and 1 helper\./)).toBeTruthy();
+    expect(useStore.getState().helperPresets.map((entry) => entry.worker.prompt)).toEqual(["Flat pastel style"]);
+    expect(api.prefSet).toHaveBeenCalledWith("helperPresets", expect.any(Array));
   });
 });

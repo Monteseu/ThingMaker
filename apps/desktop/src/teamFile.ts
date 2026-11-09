@@ -1,6 +1,6 @@
 /**
- * Teams as JSON files: export one or more saved teams, import them back on
- * this machine or another.
+ * Teams as JSON files: export one or more saved teams, and saved helpers
+ * (helper presets), and import them back on this machine or another.
  *
  * A file holds the teams' names, leads and helpers, never ids or anything of
  * the machine's: an imported team is a new team, named apart from the ones
@@ -10,29 +10,36 @@
  */
 import { PROVIDERS, type Combo, type OrchestratorChoice, type Provider, type TeamPreset, type WorkerSlot } from "@thingmaker/contracts";
 import { t } from "./i18n";
-import { newPreset, uniqueName } from "./team";
+import { newPreset, uniqueName, type HelperPreset } from "./team";
 
 export const TEAMS_FORMAT = "thingmaker.teams";
 export const TEAMS_VERSION = 1;
 
 /** One team as a file carries it. */
 export type TeamFileEntry = { name: string; orchestrator: OrchestratorChoice; combo: Combo };
-export type TeamsFile = { format: typeof TEAMS_FORMAT; version: number; exportedAt: string; teams: TeamFileEntry[] };
+/** Saved helpers ride along as `helpers`, each a helper as a team has it.
+ *  An older ThingMaker ignores them and still imports the teams. */
+export type TeamsFile = { format: typeof TEAMS_FORMAT; version: number; exportedAt: string; teams: TeamFileEntry[]; helpers?: WorkerSlot[] };
 
-/** The file for these teams, pretty-printed so it can be read and edited by hand. */
-export function exportTeams(presets: readonly TeamPreset[], now = new Date()): string {
+/** What a file holds once read. */
+export type TeamsFileContent = { teams: TeamFileEntry[]; helpers: WorkerSlot[] };
+
+/** The file for these teams and helpers, pretty-printed so it can be read and edited by hand. */
+export function exportTeams(presets: readonly TeamPreset[], helpers: readonly HelperPreset[] = [], now = new Date()): string {
   const file: TeamsFile = {
     format: TEAMS_FORMAT,
     version: TEAMS_VERSION,
     exportedAt: now.toISOString(),
     teams: presets.map((preset) => ({ name: preset.name, orchestrator: { ...preset.orchestrator }, combo: { workers: preset.combo.workers.map((worker) => ({ ...worker })), nativeSubagents: preset.combo.nativeSubagents } })),
+    ...(helpers.length > 0 ? { helpers: helpers.map((helper) => ({ ...helper.worker, name: helper.name })) } : {}),
   };
   return `${JSON.stringify(file, null, 2)}\n`;
 }
 
 /** A file name for the export: the team's own for one team. */
-export function exportFileName(presets: readonly TeamPreset[]): string {
-  if (presets.length !== 1) return "thingmaker-teams.json";
+export function exportFileName(presets: readonly TeamPreset[], helpers: readonly HelperPreset[] = []): string {
+  if (presets.length === 0 && helpers.length > 0) return "thingmaker-helpers.json";
+  if (presets.length !== 1 || helpers.length > 0) return "thingmaker-teams.json";
   const slug = (presets[0]?.name ?? "team")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
@@ -64,8 +71,8 @@ function readHelper(value: unknown, where: string): WorkerSlot {
   return { name, provider: helper.provider, ...(model ? { model } : {}), ...(effort ? { effort } : {}), capabilities, ...(note ? { note } : {}), ...(prompt ? { prompt } : {}) };
 }
 
-/** The teams in a file's text: a teams file, a list of teams, or one team. Throws, saying what is wrong, when it is none of those. */
-export function readTeamsFile(raw: string): TeamFileEntry[] {
+/** The teams and helpers in a file's text: a teams file, a list of teams, or one team. Throws, saying what is wrong, when it is none of those. */
+export function readTeamsFile(raw: string): TeamsFileContent {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -76,8 +83,13 @@ export function readTeamsFile(raw: string): TeamFileEntry[] {
   if (file && typeof file === "object" && "format" in file && file.format !== TEAMS_FORMAT) throw new Error(t("That file is not a ThingMaker teams file."));
   if (file && typeof file === "object" && typeof file.version === "number" && file.version > TEAMS_VERSION) throw new Error(t("That file was made by a newer ThingMaker. Update ThingMaker to import it."));
   const list: unknown[] = Array.isArray(parsed) ? parsed : file && typeof file === "object" && Array.isArray(file.teams) ? file.teams : file && typeof file === "object" && "orchestrator" in file ? [file] : [];
-  if (list.length === 0) throw new Error(t("That file has no teams in it."));
-  return list.map((value, index) => {
+  const helperList: unknown[] = file && typeof file === "object" && !Array.isArray(file) && Array.isArray(file.helpers) ? file.helpers : [];
+  if (list.length === 0 && helperList.length === 0) throw new Error(t("That file has no teams or helpers in it."));
+  const helpers = helperList.map((value, index) => {
+    const name = text((value as Partial<WorkerSlot> | null)?.name);
+    return readHelper(value, name ? t("Helper preset “{name}”", { name }) : t("Helper preset {n}", { n: index + 1 }));
+  });
+  const teams = list.map((value, index) => {
     const entry = value as Partial<TeamFileEntry> | null;
     const name = text(entry?.name);
     const where = name ? t("Team “{name}”", { name }) : t("Team {n}", { n: index + 1 });
@@ -91,6 +103,17 @@ export function readTeamsFile(raw: string): TeamFileEntry[] {
       names.add(worker.name.toLowerCase());
     }
     return { name, orchestrator, combo: { workers, nativeSubagents: combo?.nativeSubagents === true } };
+  });
+  return { teams, helpers };
+}
+
+/** Imported helpers as new helper presets: fresh ids, and names apart from the ones already here and from each other. */
+export function importedHelpers(helpers: readonly WorkerSlot[], existing: readonly HelperPreset[]): HelperPreset[] {
+  const taken = existing.map((preset) => preset.name);
+  return helpers.map((worker) => {
+    const name = uniqueName(worker.name, taken);
+    taken.push(name);
+    return { id: `helper-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`, name, worker: { ...worker, name }, updatedAt: Date.now() };
   });
 }
 

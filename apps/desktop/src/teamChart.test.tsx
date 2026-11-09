@@ -20,6 +20,7 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => () => undefi
 import { useStore } from "./store";
 import { TeamChart } from "./components/TeamChart";
 import { roleOf, starterCombo, starterLead, suggestModel, withRole } from "./teamRoles";
+import { helperPresetFrom, workerFromPreset, type HelperPreset } from "./team";
 
 const model = (id: string, name: string, efforts: string[], extra: Partial<ProviderModel> = {}): ProviderModel => ({ id, name, needsCredits: false, efforts, inputImage: true, isDefault: false, ...extra });
 const catalogs = {
@@ -77,7 +78,7 @@ describe("the team chart", () => {
     orchestrator = { provider: "claude", model: "opus", effort: "xhigh" };
     combo = { workers: [{ name: "Sonnet", provider: "claude", model: "sonnet", effort: "high", capabilities: ["research"], note: "Reads docs and code, and answers questions" }], nativeSubagents: false };
     onChange.mockClear();
-    useStore.setState({ providerModels: catalogs, providers, quotas: {}, loadProviderModels: vi.fn(async () => []) } as never);
+    useStore.setState({ providerModels: catalogs, providers, quotas: {}, loadProviderModels: vi.fn(async () => []), helperPresets: [], loadHelperPresets: vi.fn(async () => undefined) } as never);
   });
   afterEach(cleanup);
 
@@ -133,5 +134,39 @@ describe("the team chart", () => {
     expect(combo.workers[0]?.capabilities).toEqual(["review"]);
     fireEvent.click(within(editor).getByRole("button", { name: "Remove helper" }));
     expect(combo.workers).toEqual([]);
+  });
+
+  it("saves a helper as a preset, with everything it is", async () => {
+    const saveHelperPreset = vi.fn(async () => null);
+    useStore.setState({ saveHelperPreset } as never);
+    combo = { ...combo, workers: [{ ...combo.workers[0]!, prompt: "Cite the files you read." }] };
+    draw();
+    fireEvent.click(screen.getByRole("button", { name: /Sonnet 5.5/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Save as helper preset" }));
+    expect(saveHelperPreset).toHaveBeenCalledWith(combo.workers[0]);
+  });
+
+  it("offers saved helpers first when adding one, and adds one as saved", () => {
+    const fixer: HelperPreset = { id: "h1", name: "Artist Fixer", worker: { name: "Artist Fixer", provider: "codex", model: "gpt-6.1-sol", effort: "high", capabilities: ["image", "ui"], note: "All icon work", prompt: "Flat pastel style" }, updatedAt: 0 };
+    useStore.setState({ helperPresets: [fixer] } as never);
+    combo = { ...combo, workers: [...combo.workers, { ...fixer.worker }] };
+    draw();
+    fireEvent.click(screen.getByRole("button", { name: /Add a helper/ }));
+    const picker = screen.getByRole("region", { name: "Add a helper" });
+    const presets = within(picker).getByRole("group", { name: "Helper presets" });
+    fireEvent.click(within(presets).getByRole("button", { name: /^Artist Fixer/ }));
+    expect(combo.workers[2]).toEqual({ ...fixer.worker, name: "Artist Fixer-2" });
+  });
+});
+
+describe("helper presets", () => {
+  it("update the preset with the same name, and rename on a team that has it", () => {
+    const worker = { name: "Artist Fixer", provider: "codex" as const, capabilities: ["image", "ui"] };
+    const first = helperPresetFrom(worker, []);
+    const again = helperPresetFrom({ ...worker, name: "artist fixer", effort: "high" }, [first]);
+    expect(again.id).toBe(first.id);
+    expect(again.worker.effort).toBe("high");
+    expect(workerFromPreset(first, ["Artist Fixer"]).name).toBe("Artist Fixer-2");
+    expect(workerFromPreset(first, []).name).toBe("Artist Fixer");
   });
 });

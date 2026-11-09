@@ -51,12 +51,13 @@ import type {
   ProviderVersion,
   TurnPhase,
 } from "@thingmaker/contracts";
-import { EMPTY_COMBO, JOB_EVENT, ULTRA_REVIEW_EVENT, type UltraReview, type UrDecision, type UrStartRequest, SESSION_TITLE_EVENT, type SessionTitleChange, ODYSSEY_STATE_NOTE, PROVIDERS, PROVIDER_LABELS, BIGTHING_EVENT, asConfigOptions, isEffortOption, type Combo, type JobView, type ProviderModel, type BigThingEvent, type BigThingRuntime, type NestedReport, type TeamPreset } from "@thingmaker/contracts";
-import { HANDOFF_SPLIT, handoffBrief, hasConversation, readPresets, upsertJob, upsertPreset, withoutHandoff } from "./team";
+import { EMPTY_COMBO, JOB_EVENT, ULTRA_REVIEW_EVENT, type UltraReview, type UrDecision, type UrStartRequest, SESSION_TITLE_EVENT, type SessionTitleChange, ODYSSEY_STATE_NOTE, PROVIDERS, PROVIDER_LABELS, BIGTHING_EVENT, asConfigOptions, isEffortOption, type Combo, type JobView, type ProviderModel, type BigThingEvent, type BigThingRuntime, type NestedReport, type TeamPreset, type WorkerSlot } from "@thingmaker/contracts";
+import { HANDOFF_SPLIT, handoffBrief, hasConversation, helperPresetFrom, readHelperPresets, readPresets, upsertHelperPreset, upsertJob, upsertPreset, withoutHandoff, type HelperPreset } from "./team";
 import { copiesItself, forkBranch, forkTitle, type ForkPoint } from "./fork";
 
 /** Preference keys (scope `ui`) for saved teams. */
 const TEAM_PRESETS_KEY = "teamPresets";
+const HELPER_PRESETS_KEY = "helperPresets";
 const DEFAULT_PRESET_KEY = "defaultTeamPreset";
 import { t } from "./i18n";
 import { api } from "./ipc";
@@ -251,6 +252,8 @@ type State = {
   providerModels: Partial<Record<Provider, ProviderModel[]>>;
   /** Saved teams (orchestrator and workers), in name order. */
   teamPresets: TeamPreset[];
+  /** Saved helpers, to add to any team. */
+  helperPresets: HelperPreset[];
   /** The preset a new session starts with, when one is chosen. */
   defaultPresetId: string | null;
   drafts: Record<string, string>;
@@ -421,6 +424,12 @@ type State = {
   loadTeamPresets: () => Promise<void>;
   saveTeamPreset: (preset: TeamPreset) => Promise<void>;
   deleteTeamPreset: (id: string) => Promise<void>;
+  loadHelperPresets: () => Promise<void>;
+  /** Saves a team's helper as a preset (updating the one with its name); null when it failed. */
+  saveHelperPreset: (worker: WorkerSlot) => Promise<HelperPreset | null>;
+  deleteHelperPreset: (id: string) => Promise<void>;
+  /** Saves helpers read from a file, all at once. */
+  addHelperPresets: (presets: HelperPreset[]) => Promise<boolean>;
   /** Saves teams read from a file, all at once. */
   addTeamPresets: (presets: TeamPreset[]) => Promise<boolean>;
   /** Makes a preset (or none) what a new session starts with. */
@@ -909,6 +918,7 @@ export const useStore = create<State>((set, get) => ({
   continuations: {},
   continuationHistory: {},
   teamPresets: [],
+  helperPresets: [],
   defaultPresetId: null,
   signIn: null,
   settings: null,
@@ -2669,6 +2679,49 @@ export const useStore = create<State>((set, get) => ({
       set({ teamPresets: list });
       // The default preset's workers are what the host starts a session with.
       if (get().defaultPresetId === saved.id) await get().saveDefaultCombo(saved.combo);
+    } catch (error) {
+      set({ error: asError(error) });
+    }
+  },
+
+  async loadHelperPresets() {
+    try {
+      set({ helperPresets: readHelperPresets(await api.prefGet<unknown>(HELPER_PRESETS_KEY)) });
+    } catch {
+      // None saved yet.
+    }
+  },
+
+  async saveHelperPreset(worker) {
+    const preset = helperPresetFrom(worker, get().helperPresets);
+    const list = upsertHelperPreset(get().helperPresets, preset);
+    try {
+      await api.prefSet(HELPER_PRESETS_KEY, list);
+      set({ helperPresets: list });
+      return preset;
+    } catch (error) {
+      set({ error: asError(error) });
+      return null;
+    }
+  },
+
+  async addHelperPresets(presets) {
+    const list = presets.reduce((all, preset) => upsertHelperPreset(all, preset), get().helperPresets);
+    try {
+      await api.prefSet(HELPER_PRESETS_KEY, list);
+      set({ helperPresets: list });
+      return true;
+    } catch (error) {
+      set({ error: asError(error) });
+      return false;
+    }
+  },
+
+  async deleteHelperPreset(id) {
+    const list = get().helperPresets.filter((preset) => preset.id !== id);
+    try {
+      await api.prefSet(HELPER_PRESETS_KEY, list);
+      set({ helperPresets: list });
     } catch (error) {
       set({ error: asError(error) });
     }
