@@ -6,7 +6,9 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.ImageDecoder
 import android.hardware.biometrics.BiometricManager.Authenticators.BIOMETRIC_WEAK
 import android.hardware.biometrics.BiometricManager.Authenticators.DEVICE_CREDENTIAL
 import android.hardware.biometrics.BiometricPrompt
@@ -310,7 +312,26 @@ class MainActivity : Activity() {
     /** A picked file's name and bytes, if it is small enough to attach. */
     private fun read(uri: Uri): Pair<String, ByteArray>? = runCatching {
         var name = "attachment"
-        contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { if (it.moveToFirst()) name = it.getString(0) ?: name }
+        var size = -1L
+        contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use {
+            if (it.moveToFirst()) {
+                name = it.getString(0) ?: name
+                if (!it.isNull(1)) size = it.getLong(1)
+            }
+        }
+        // A still image that is big (or of unknown size), or in a format the
+        // computer does not take (HEIC), goes as a smaller JPEG; a GIF keeps
+        // its frames unless it could not be sent otherwise.
+        val type = contentResolver.getType(uri) ?: ""
+        val big = size < 0 || size > SMALL_ENOUGH
+        val shrinkIt = when (type) {
+            "image/gif" -> size > MAX_ATTACHMENT
+            "image/png", "image/jpeg", "image/webp" -> big
+            else -> type.startsWith("image/")
+        }
+        if (shrinkIt) {
+            shrink(uri, name)?.let { return@runCatching it }
+        }
         val output = ByteArrayOutputStream()
         contentResolver.openInputStream(uri)!!.use { stream ->
             val buffer = ByteArray(64 * 1024)
@@ -322,6 +343,31 @@ class MainActivity : Activity() {
             }
         }
         name to output.toByteArray()
+    }.getOrNull()
+
+    /**
+     * A big photo as a JPEG at most [MAX_SIDE] pixels a side, upright, so it
+     * crosses the relay quickly and within its message size. Null when it
+     * cannot be decoded; the original is sent then.
+     */
+    private fun shrink(uri: Uri, name: String): Pair<String, ByteArray>? = runCatching {
+        // ImageDecoder applies the photo's EXIF rotation itself.
+        val bitmap = ImageDecoder.decodeBitmap(ImageDecoder.createSource(contentResolver, uri)) { decoder, info, _ ->
+            val side = maxOf(info.size.width, info.size.height)
+            if (side > MAX_SIDE) {
+                val scale = MAX_SIDE.toFloat() / side
+                decoder.setTargetSize((info.size.width * scale).toInt().coerceAtLeast(1), (info.size.height * scale).toInt().coerceAtLeast(1))
+            }
+            decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+        }
+        var quality = 88
+        var jpeg: ByteArray
+        do {
+            jpeg = ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.JPEG, quality, it) }.toByteArray()
+            quality -= 12
+        } while (jpeg.size > SMALL_ENOUGH && quality >= 40)
+        bitmap.recycle()
+        "${name.substringBeforeLast('.', name)}.jpg" to jpeg
     }.getOrNull()
 
     private inner class NativeBridge {
@@ -384,7 +430,12 @@ class MainActivity : Activity() {
                 picking = id
                 @Suppress("DEPRECATION")
                 startActivityForResult(
-                    Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*").putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true),
+                    Intent(Intent.ACTION_OPEN_DOCUMENT)
+                        .addCategory(Intent.CATEGORY_OPENABLE)
+                        .setType("*/*")
+                        // What the computer attaches: images and audio.
+                        .putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "audio/*"))
+                        .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true),
                     PICK,
                 )
             }
@@ -449,6 +500,9 @@ class MainActivity : Activity() {
         private const val MAX_FILES = 8
         /** The computer takes attachments up to 10 MiB. */
         private const val MAX_ATTACHMENT = 10 * 1024 * 1024
+        /** Images larger than this are re-encoded before they are sent. */
+        private const val SMALL_ENOUGH = 700 * 1024
+        private const val MAX_SIDE = 2048
         private val SOCKETS = OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS).readTimeout(0, TimeUnit.SECONDS).pingInterval(25, TimeUnit.SECONDS).build()
     }
 }

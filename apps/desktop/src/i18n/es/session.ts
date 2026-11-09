@@ -213,6 +213,8 @@ export const session: Record<string, string> = {
   "nothing has been reported for {time}; it probably ended without saying so": "no ha informado de nada en {time}; seguramente terminó sin avisar",
   "Agents": "Agentes",
   "Hide detail": "Ocultar detalle",
+  "Hide team activity": "Ocultar actividad del equipo",
+  "Show team activity": "Mostrar actividad del equipo",
   "Show what is running": "Mostrar lo que está en marcha",
   "tool": "herramienta",
   "starting": "iniciando",

@@ -13,6 +13,7 @@
  */
 import { useEffect, useState } from "react";
 import { t } from "../i18n";
+import { IS_REMOTE } from "../remote/mode";
 import { useStore, windowDelta } from "../store";
 import { staleActivity } from "../odysseyRunner";
 import { stepDoing, stepOf } from "../toolSteps";
@@ -32,6 +33,16 @@ export function ActivityBar({ sessionId, onOpenAgents }: { sessionId: string; on
   const session = useStore((s) => s.sessions[sessionId]);
   const [now, setNow] = useState(Date.now());
   const [open, setOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    if (!IS_REMOTE) return false;
+    try { return localStorage.getItem("thingmaker.phone.activityCollapsed") === "true"; }
+    catch { return false; }
+  });
+  useEffect(() => {
+    if (!IS_REMOTE) return;
+    try { localStorage.setItem("thingmaker.phone.activityCollapsed", String(collapsed)); }
+    catch { /* Still allow folding when device storage is unavailable. */ }
+  }, [collapsed]);
   const sampleUsage = useStore((s) => s.sampleUsage);
   const clearStaleActivity = useStore((s) => s.clearStaleActivity);
   const jobs = useStore((s) => s.jobs[sessionId]);
@@ -121,6 +132,18 @@ export function ActivityBar({ sessionId, onOpenAgents }: { sessionId: string; on
 
   return (
     <div aria-live="off" className={`activity ${foreground ? "" : "activity-background"}`} role="status">
+      {IS_REMOTE && (
+        <button
+          aria-expanded={!collapsed}
+          className="link small activity-toggle"
+          onClick={() => setCollapsed(!collapsed)}
+          type="button"
+        >
+          <IconChevron open={!collapsed} size={14} />
+          {collapsed ? t("Show team activity") : t("Hide team activity")}
+        </button>
+      )}
+      {!collapsed && <>
       <div className="activity-head">
         <ul aria-label={t("Who is working")} className="crew">
           {shown.map((member) => (
@@ -178,6 +201,7 @@ export function ActivityBar({ sessionId, onOpenAgents }: { sessionId: string; on
           sampling={session.usage.sampling}
         />
       )}
+      </>}
     </div>
   );
 }
