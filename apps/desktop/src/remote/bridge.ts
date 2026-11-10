@@ -42,7 +42,7 @@ declare global {
       language?(): string;
       setLanguage?(language: string): void;
     };
-    __thingmakerSocket?: (id: string, kind: "open" | "message" | "close", data: string) => void;
+    __thingmakerSocket?: (id: string, kind: "open" | "part" | "message" | "close", data: string) => void;
     __thingmakerAnswer?: (id: string, value: unknown) => void;
   }
 }
@@ -81,6 +81,8 @@ type Socket = {
 };
 
 const nativeSockets = new Map<string, Socket>();
+/** Pieces of a big message still arriving from the app, per socket. */
+const nativePieces = new Map<string, string[]>();
 
 /** The app's socket, when there is an app; the page's own otherwise. */
 function openSocket(path: string): Socket {
@@ -98,9 +100,15 @@ function openSocket(path: string): Socket {
     const socket = nativeSockets.get(id);
     if (!socket) return;
     if (kind === "open") socket.onopen?.();
-    else if (kind === "message") socket.onmessage?.({ data });
-    else {
+    else if (kind === "part") (nativePieces.get(id) ?? nativePieces.set(id, []).get(id)!).push(data);
+    else if (kind === "message") {
+      // A big message arrives in pieces, the last one as "message".
+      const pieces = nativePieces.get(id);
+      nativePieces.delete(id);
+      socket.onmessage?.({ data: pieces ? pieces.join("") + data : data });
+    } else {
       nativeSockets.delete(id);
+      nativePieces.delete(id);
       socket.onclose?.(data || undefined);
     }
   };

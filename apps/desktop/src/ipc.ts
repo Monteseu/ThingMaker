@@ -169,6 +169,9 @@ export type OpenRequest = {
   forkAt?: string;
 };
 
+/** Events per history reply; see `api.sessionHistory`. */
+const HISTORY_PAGE = 500;
+
 export const api = {
   executionProfiles: () => call<ProfileInfo[]>(COMMANDS.executionProfiles),
   workspaceInspect: (path: string) => call<WorkspaceInspection>(COMMANDS.workspaceInspect, { path }),
@@ -197,8 +200,24 @@ export const api = {
     call<unknown>(COMMANDS.sessionSetConfigOption, { request: { handle, configId, value } }),
   sessionStop: (handle: SessionHandle) => call<ExitInfo>(COMMANDS.sessionStop, { handle }),
   sessionListOpen: () => call<OpenSessionEntry[]>(COMMANDS.sessionListOpen),
-  sessionHistory: (handle: SessionHandle, after: string, limit = 20000) =>
-    call<EventEnvelopeType[]>(COMMANDS.sessionHistory, { request: { handle, after, limit } }),
+  /**
+   * Retained events after `after`, fetched a page at a time: a long session's
+   * whole history in one reply is tens of megabytes, more than the Android
+   * app can hold while it hands the message to the page.
+   */
+  sessionHistory: async (handle: SessionHandle, after: string, limit = 20000) => {
+    const events: EventEnvelopeType[] = [];
+    let cursor = after;
+    while (events.length < limit) {
+      const want = Math.min(HISTORY_PAGE, limit - events.length);
+      const page = await call<EventEnvelopeType[]>(COMMANDS.sessionHistory, { request: { handle, after: cursor, limit: want } });
+      events.push(...page);
+      const last = page.at(-1);
+      if (!last || page.length < want) break;
+      cursor = last.sequence;
+    }
+    return events;
+  },
   sessionTokenUsage: (workspaceId: string, agentSessionId: string) =>
     call<TranscriptUsage>(COMMANDS.sessionTokenUsage, { request: { workspaceId, agentSessionId } }),
   outboxList: (workspaceId: string) => call<OutboxEntry[]>(COMMANDS.outboxList, { workspaceId }),
