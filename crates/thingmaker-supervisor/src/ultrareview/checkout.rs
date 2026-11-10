@@ -216,7 +216,20 @@ fn add_detached(root: &Path, path: &Path, rev: &str) -> Result<(), DesktopError>
         std::fs::create_dir_all(parent).map_err(|error| DesktopError::io(error.to_string()))?;
     }
     let path_text = path.to_string_lossy().into_owned();
-    git::run(root, &["worktree", "add", "--detach", &path_text, rev]).map(|_| ())
+    // Reviewers read code: large files kept in Git LFS stay as their small
+    // pointer files instead of being downloaded into every review's copy.
+    let added = git::run_with_env(root, &["worktree", "add", "--detach", &path_text, rev], &[("GIT_LFS_SKIP_SMUDGE", "1")]);
+    if let Err(error) = added {
+        // Nothing half-made is left behind for the next try.
+        let _ = git::run(root, &["worktree", "remove", "--force", &path_text]);
+        let _ = std::fs::remove_dir_all(path);
+        let _ = git::run(root, &["worktree", "prune"]);
+        if error.message.contains("git-lfs") && error.message.contains("not found") {
+            return Err(DesktopError::not_ready("this repository keeps files in Git LFS, and git-lfs is not installed. Install it (brew install git-lfs) and try again"));
+        }
+        return Err(error);
+    }
+    Ok(())
 }
 
 /// Registers the checkout so ThingMaker can open the reviewers' sessions in it.
@@ -307,6 +320,30 @@ pub fn remove(storage: &Storage, repository_root: &Path, checkout: &Path, worktr
 mod tests {
     use super::*;
     use std::process::Command;
+
+    #[test]
+    fn a_review_copy_of_a_git_lfs_repository_keeps_pointer_files() {
+        if !Command::new("git").args(["lfs", "version"]).output().map(|o| o.status.success()).unwrap_or(false) {
+            return; // git-lfs is not installed here.
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("repo");
+        std::fs::create_dir_all(&root).unwrap();
+        assert!(sh(&root, &["init", "-q", "-b", "main"]));
+        assert!(sh(&root, &["config", "user.email", "t@example.com"]) && sh(&root, &["config", "user.name", "T"]));
+        assert!(sh(&root, &["lfs", "install", "--local"]));
+        assert!(sh(&root, &["lfs", "track", "*.bin"]));
+        std::fs::write(root.join("art.bin"), vec![7u8; 4096]).unwrap();
+        std::fs::write(root.join("code.txt"), "hello\n").unwrap();
+        assert!(sh(&root, &["add", "."]) && sh(&root, &["commit", "-q", "-m", "init"]));
+        // The large file is not here and there is no server to fetch it from:
+        // a normal checkout fails, as it did on the user's machine.
+        std::fs::remove_dir_all(root.join(".git/lfs/objects")).unwrap();
+        let copy = dir.path().join("copy");
+        add_detached(&root, &copy, "HEAD").unwrap();
+        assert_eq!(std::fs::read_to_string(copy.join("code.txt")).unwrap(), "hello\n");
+        assert!(std::fs::read_to_string(copy.join("art.bin")).unwrap().starts_with("version https://git-lfs.github.com/spec/v1"));
+    }
 
     #[test]
     fn the_search_box_reads_numbers_links_and_words() {

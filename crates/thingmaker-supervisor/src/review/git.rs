@@ -15,6 +15,10 @@ use crate::error::DesktopError;
 const MAX_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
 
 fn git(root: &Path, args: &[&str]) -> Result<std::process::Output, DesktopError> {
+    git_with(root, args, &[])
+}
+
+fn git_with(root: &Path, args: &[&str], extra_env: &[(&str, &str)]) -> Result<std::process::Output, DesktopError> {
     let mut command = crate::platform::command("git");
     command
         .arg("--no-pager")
@@ -24,6 +28,8 @@ fn git(root: &Path, args: &[&str]) -> Result<std::process::Output, DesktopError>
         .args(args)
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_OPTIONAL_LOCKS", "0")
+        .env("PATH", crate::platform::tool_path())
+        .envs(extra_env.iter().copied())
         .stdin(std::process::Stdio::null());
     let output = command.output().map_err(|e| DesktopError::io(format!("git unavailable: {e}")))?;
     if output.stdout.len() > MAX_OUTPUT_BYTES {
@@ -161,6 +167,15 @@ pub fn run(root: &Path, args: &[&str]) -> Result<String, DesktopError> {
     git_ok(root, args)
 }
 
+/// `run` with extra environment for git and the helpers it starts.
+pub fn run_with_env(root: &Path, args: &[&str], env: &[(&str, &str)]) -> Result<String, DesktopError> {
+    let output = git_with(root, args, env)?;
+    if !output.status.success() {
+        return Err(DesktopError::io(format!("git {} failed: {}", args.first().copied().unwrap_or(""), String::from_utf8_lossy(&output.stderr).trim())));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
 fn git_ok(root: &Path, args: &[&str]) -> Result<String, DesktopError> {
     let output = git(root, args)?;
     if !output.status.success() {
@@ -183,6 +198,7 @@ fn git_stdin(root: &Path, args: &[&str], input: &[u8]) -> Result<String, Desktop
         .args(args)
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_OPTIONAL_LOCKS", "0")
+        .env("PATH", crate::platform::tool_path())
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());

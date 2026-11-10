@@ -1,6 +1,23 @@
 //! Native subprocess construction shared by desktop helpers.
 use std::{ffi::OsStr, process::Command};
 
+/// PATH with the folders developer tools are usually installed in added at
+/// the end when they exist and are missing. An app opened from the Dock gets
+/// the bare system PATH, so git could not find the helpers a repository
+/// configures (git-lfs from Homebrew, for one).
+pub fn tool_path() -> std::ffi::OsString {
+    let current = std::env::var_os("PATH").unwrap_or_default();
+    let mut parts: Vec<std::path::PathBuf> = std::env::split_paths(&current).collect();
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    let candidates = [Some(std::path::PathBuf::from("/opt/homebrew/bin")), Some(std::path::PathBuf::from("/usr/local/bin")), home.as_ref().map(|home| home.join(".local/bin"))];
+    for dir in candidates.into_iter().flatten() {
+        if dir.is_dir() && !parts.contains(&dir) {
+            parts.push(dir);
+        }
+    }
+    std::env::join_paths(parts).unwrap_or(current)
+}
+
 pub fn command(program: impl AsRef<OsStr>) -> Command {
     let program = program.as_ref();
     #[cfg(windows)]
@@ -22,6 +39,20 @@ pub fn command(program: impl AsRef<OsStr>) -> Command {
         command.creation_flags(0x08000000); // CREATE_NO_WINDOW
     }
     command
+}
+
+#[cfg(all(test, unix))]
+mod path_tests {
+    #[test]
+    fn the_tool_path_keeps_what_is_there_and_adds_homebrew_when_it_exists() {
+        let path = super::tool_path();
+        let parts: Vec<_> = std::env::split_paths(&path).collect();
+        for dir in std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()) {
+            assert!(parts.contains(&dir));
+        }
+        let homebrew = std::path::PathBuf::from("/opt/homebrew/bin");
+        assert_eq!(parts.contains(&homebrew), homebrew.is_dir() || std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).any(|dir| dir == homebrew));
+    }
 }
 
 #[cfg(all(test, windows))]
