@@ -226,7 +226,8 @@ fn local_launch(
     let (kind, name) = local::parse_model(&id);
     let name = name.to_string();
     let home = local::local_home(&state.data_dir);
-    let window = local::DEFAULT_WINDOW;
+    let chosen = state.with_storage(|storage| storage.setting_get::<u64>(local::WINDOW_SETTING, &name)).ok().flatten();
+    let window = local::window_for(&name, chosen);
     match kind {
         LocalKind::Chat => {
             let exe = std::env::current_exe().map_err(|error| DesktopError::io(format!("could not find ThingMaker's own program: {error}")))?;

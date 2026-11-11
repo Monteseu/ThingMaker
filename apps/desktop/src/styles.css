@@ -7410,6 +7410,11 @@ html[data-platform="android"] { --traffic-lights: 8px; --titlebar: 52px; height:
   transition: width 0.3s ease;
 }
 
+.local-window {
+  padding: 3px 6px;
+  font-size: 12px;
+}
+
 .local-other {
   display: flex;
   gap: 8px;

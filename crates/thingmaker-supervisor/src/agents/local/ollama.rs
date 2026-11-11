@@ -47,6 +47,9 @@ pub struct LocalModel {
     pub context_length: Option<u64>,
     /// Ollama's capability names: `completion`, `tools`, `vision`, `thinking`, …
     pub capabilities: Vec<String>,
+    /// Memory each token of context window takes (the KV cache), from the
+    /// model's shape; typical 8B values where Ollama does not say.
+    pub kv_bytes_per_token: u64,
 }
 
 impl LocalModel {
@@ -330,7 +333,18 @@ fn model_from(name: &str, entry: &Value, details: &Value, show: &Value) -> Local
         .get("model_info")
         .and_then(Value::as_object)
         .and_then(|info| info.iter().find(|(key, _)| key.ends_with(".context_length")).and_then(|(_, value)| value.as_u64()));
+    let info = show.get("model_info").and_then(Value::as_object);
+    let number = |suffix: &str| info.and_then(|info| info.iter().find(|(key, _)| key.ends_with(suffix)).and_then(|(_, value)| value.as_u64()));
+    let blocks = number(".block_count").unwrap_or(32);
+    let heads = number(".attention.head_count").unwrap_or(32).max(1);
+    let kv_heads = number(".attention.head_count_kv").unwrap_or(8);
+    let head_dim = number(".embedding_length").map(|width| width / heads).unwrap_or(128);
+    let key = number(".attention.key_length").unwrap_or(head_dim);
+    let value = number(".attention.value_length").unwrap_or(head_dim);
+    // Keys and values for every layer, at two bytes each (f16).
+    let kv_bytes_per_token = blocks * kv_heads * (key + value) * 2;
     LocalModel {
+        kv_bytes_per_token,
         name: name.to_string(),
         family: text(details.get("family")),
         parameter_size: text(details.get("parameter_size")),
@@ -395,5 +409,7 @@ mod tests {
         assert!(model.uses_tools());
         assert!(!model.sees_images());
         assert_eq!(model.parameter_size, "8.0B");
+        let llama = json!({ "model_info": { "llama.block_count": 32, "llama.attention.head_count": 32, "llama.attention.head_count_kv": 8, "llama.embedding_length": 4096 } });
+        assert_eq!(model_from("llama3.1:8b", &entry, &details, &llama).kv_bytes_per_token, 131_072, "Phase 0 measured about 4 GB more at 32k");
     }
 }

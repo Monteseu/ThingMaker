@@ -57,6 +57,11 @@ export function freeNotPrivate(lead: Provider, helper: Provider): boolean {
   return helper === "local" && lead !== "local";
 }
 
+/** A window in tokens as people say it: 32768 → "32k". */
+export function windowLabel(tokens: number): string {
+  return tokens >= 1024 ? `${Math.round(tokens / 1024)}k` : String(tokens);
+}
+
 export function bytes(size: number): string {
   return size >= 1e9 ? `${(size / 1e9).toFixed(1)} GB` : `${Math.round(size / 1e6)} MB`;
 }

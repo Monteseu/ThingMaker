@@ -206,7 +206,22 @@ export function localModelId(kind: LocalKind, name: string): string {
   return `@${kind}/${name}`;
 }
 export type LocalFit = "fits" | "tight" | "too_big";
-export type LocalModelInfo = { name: string; family: string; parameterSize: string; quantization: string; sizeBytes: number; contextLength?: number | null; capabilities: string[]; fit?: LocalFit | null };
+export type LocalWindowOption = { tokens: number; max: boolean; fit?: LocalFit | null };
+export type LocalModelInfo = {
+  name: string;
+  family: string;
+  parameterSize: string;
+  quantization: string;
+  sizeBytes: number;
+  contextLength?: number | null;
+  capabilities: string[];
+  /** Whether it fits this computer with its window. */
+  fit?: LocalFit | null;
+  /** The context window it runs with: chosen, else the largest that fits. */
+  window: number;
+  /** 16k, 32k and 64k below the model's maximum, then the maximum, even when it cannot run here. */
+  windowOptions: LocalWindowOption[];
+};
 export type LocalLoadedModel = { name: string; sizeBytes: number; contextLength?: number | null };
 export type LocalRecommended = { name: string; purpose: string; sizeBytes: number; agent: boolean; installed: boolean; fit?: LocalFit | null };
 export type LocalStatus = {
@@ -1715,6 +1730,7 @@ export const COMMANDS = {
   localPullCancel: "local_pull_cancel",
   localDelete: "local_delete",
   localAllowLoopback: "local_allow_loopback",
+  localSetWindow: "local_set_window",
   ultraReviewMarkdown: "ultra_review_markdown",
   ultraReviewPost: "ultra_review_post",
   ultraReviewTrackRecord: "ultra_review_track_record",

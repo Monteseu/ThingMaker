@@ -48,9 +48,12 @@ not to think (`/no_think`), because thinking takes most of a turn on a laptop.
 The Local Models card in Providers walks through it: get Ollama, start it, and
 download a model. The recommended list is part of ThingMaker, filtered by this
 computer's memory, and never fetched. Ollama's `:cloud` models are hidden.
-Agents use a copy of the model with a 16k window (`<model>-thingmaker-16k`),
-which ThingMaker makes and hides, because Ollama loads models with 4,096
-tokens by default.
+Each model has a context window, chosen on the card: 16k, 32k and 64k below
+the model's maximum, then the maximum itself, each rated by whether it fits
+this computer's memory (the model plus its KV cache for that window). The
+default is the largest that fits. Chats send it with each request; agents use
+a copy of the model carrying it (`<model>-thingmaker-32k`), which ThingMaker
+makes and hides, because Ollama loads models with 4,096 tokens by default.
 
 Local models share one GPU, so one local job runs at a time; the rest show
 "Waiting for the local model".

@@ -35,10 +35,29 @@ pub enum LocalKind {
 const CHAT_PREFIX: &str = "@chat/";
 const AGENT_PREFIX: &str = "@agent/";
 
-/// The context window a session asks for when nothing says otherwise. 16k
-/// fits Claude Code's ~4k-token start with room, and an 8B model's memory
-/// stays near 7 GB on a 16 GB computer (Phase 0).
+/// The context window a session asks for when the model cannot be asked.
 pub const DEFAULT_WINDOW: u64 = 16_384;
+
+/// The setting that keeps each model's chosen window, scoped by model name.
+pub const WINDOW_SETTING: &str = "localWindow";
+
+/// The window a model runs with: the one chosen for it, else the largest
+/// that fits this computer. Safe to call from async code.
+pub fn window_for(name: &str, chosen: Option<u64>) -> u64 {
+    if let Some(tokens) = chosen.filter(|tokens| *tokens >= 4_096) {
+        return tokens;
+    }
+    let name = name.to_string();
+    std::thread::spawn(move || {
+        let model = ollama::Ollama::local().models().ok()?.into_iter().find(|model| model.name == name)?;
+        let options = recommended::window_options(model.context_length, model.size_bytes, model.kv_bytes_per_token, memory_bytes());
+        Some(recommended::default_window(&options))
+    })
+    .join()
+    .ok()
+    .flatten()
+    .unwrap_or(DEFAULT_WINDOW)
+}
 
 /// Splits a stored model id into its kind and Ollama name. A bare name is a
 /// chat: that is what a person most often wants from a local model.
@@ -292,7 +311,7 @@ mod tests {
 
     #[test]
     fn every_model_can_chat_and_only_those_with_tools_are_agents() {
-        let model = |name: &str, capabilities: &[&str]| ollama::LocalModel { name: name.into(), family: String::new(), parameter_size: "8B".into(), quantization: "Q4_K_M".into(), size_bytes: 5_200_000_000, context_length: Some(40960), capabilities: capabilities.iter().map(|c| c.to_string()).collect() };
+        let model = |name: &str, capabilities: &[&str]| ollama::LocalModel { name: name.into(), family: String::new(), parameter_size: "8B".into(), quantization: "Q4_K_M".into(), size_bytes: 5_200_000_000, context_length: Some(40960), capabilities: capabilities.iter().map(|c| c.to_string()).collect(), kv_bytes_per_token: 147_456 };
         let list = catalog(&[model("gemma3:4b", &["completion", "vision"]), model("qwen3:8b", &["completion", "tools", "thinking"])]);
         let ids: Vec<&str> = list.iter().map(|m| m.id.as_str()).collect();
         assert_eq!(ids, ["@chat/gemma3:4b", "@chat/qwen3:8b", "@agent/qwen3:8b"]);

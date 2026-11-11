@@ -409,6 +409,7 @@ export const api = {
   localPullCancel: (name: string) => call<boolean>(COMMANDS.localPullCancel, { name }),
   localDelete: (name: string) => call<void>(COMMANDS.localDelete, { name }),
   localAllowLoopback: () => call<boolean>(COMMANDS.localAllowLoopback),
+  localSetWindow: (name: string, tokens: number) => call<void>(COMMANDS.localSetWindow, { name, tokens }),
   providerVersions: (askLatest: boolean) => call<ProviderVersion[]>(COMMANDS.providerVersions, { askLatest }),
   providerUpdate: (provider: Provider) => call<ProviderUpdateResult>(COMMANDS.providerUpdate, { provider }),
   appUpdateCheck: () => call<UpdateCheck>(COMMANDS.appUpdateCheck),

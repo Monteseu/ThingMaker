@@ -28,8 +28,8 @@ const status = (extra: Partial<LocalStatus> = {}): LocalStatus => ({
   running: true,
   version: "0.40.16",
   models: [
-    { name: "llama3.1:8b", family: "llama", parameterSize: "8.0B", quantization: "Q4_K_M", sizeBytes: 4_900_000_000, contextLength: 131072, capabilities: ["completion"], fit: "fits" },
-    { name: "qwen3:8b", family: "qwen3", parameterSize: "8.2B", quantization: "Q4_K_M", sizeBytes: 5_200_000_000, contextLength: 40960, capabilities: ["completion", "tools", "thinking"], fit: "fits" },
+    { name: "llama3.1:8b", family: "llama", parameterSize: "8.0B", quantization: "Q4_K_M", sizeBytes: 4_900_000_000, contextLength: 131072, capabilities: ["completion"], fit: "fits", window: 32768, windowOptions: [{ tokens: 16384, max: false, fit: "fits" }, { tokens: 32768, max: false, fit: "fits" }, { tokens: 65536, max: false, fit: "too_big" }, { tokens: 131072, max: true, fit: "too_big" }] },
+    { name: "qwen3:8b", family: "qwen3", parameterSize: "8.2B", quantization: "Q4_K_M", sizeBytes: 5_200_000_000, contextLength: 40960, capabilities: ["completion", "tools", "thinking"], fit: "fits", window: 32768, windowOptions: [{ tokens: 16384, max: false, fit: "fits" }, { tokens: 32768, max: false, fit: "fits" }, { tokens: 40960, max: true, fit: "tight" }] },
   ],
   loaded: [],
   recommended: [
@@ -73,6 +73,16 @@ describe("the Local Models card", () => {
     const llama = screen.getByText("llama3.1:8b").closest("tr")!;
     expect(within(llama).getByText("Chat only")).toBeTruthy();
     expect(within(screen.getByText("qwen3:8b").closest("tr")!).getByText("Chat · Agent")).toBeTruthy();
+  });
+
+  it("offers each model's windows up to its maximum, and saves the one chosen", async () => {
+    vi.mocked(api.localStatus).mockResolvedValue(status());
+    render(<LocalModelsCard info={info} />);
+    const llama = (await screen.findByRole("combobox", { name: "Context window for llama3.1:8b" })) as HTMLSelectElement;
+    expect([...llama.options].map((option) => option.textContent)).toEqual(["16k · Fits", "32k · Fits", "64k · Too big", "128k · max · Too big"]);
+    expect(llama.value).toBe("32768");
+    fireEvent.change(llama, { target: { value: "131072" } });
+    await waitFor(() => expect(api.localSetWindow).toHaveBeenCalledWith("llama3.1:8b", 131072));
   });
 
   it("downloads a model with progress, and will not offer one too big for this computer", async () => {

@@ -284,6 +284,7 @@ pub fn run() {
             commands::local::local_pull_cancel,
             commands::local::local_delete,
             commands::local::local_allow_loopback,
+            commands::local::local_set_window,
             commands::ultrareview::ultra_review_markdown,
             commands::ultrareview::ultra_review_post,
             commands::ultrareview::ultra_review_track_record,

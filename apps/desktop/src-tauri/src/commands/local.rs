@@ -19,7 +19,7 @@ use thingmaker_supervisor::{
     agents::local::{
         self,
         ollama::{LoadedModel, LocalModel, Ollama, PullProgress},
-        recommended::{self, Fit, Recommended},
+        recommended::{self, Fit, Recommended, WindowOption},
     },
     error::DesktopError,
 };
@@ -53,7 +53,11 @@ pub struct RecommendedModel {
 pub struct InstalledModel {
     #[serde(flatten)]
     pub model: LocalModel,
+    /// Whether it fits with its window.
     pub fit: Option<Fit>,
+    /// The context window it runs with: chosen, else the largest that fits.
+    pub window: u64,
+    pub window_options: Vec<WindowOption>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -91,6 +95,7 @@ fn private_mode() -> PrivateMode {
 /// Ollama's state: installed, running, the models and what fits.
 #[tauri::command]
 pub async fn local_status(state: State<'_, AppState>) -> CommandResult<LocalStatus> {
+    let storage = state.inner_arc();
     let installed = state.resolve_provider(thingmaker_supervisor::agents::Provider::Local).is_ok();
     let agents_available = state.resolve_provider(thingmaker_supervisor::agents::Provider::Claude).is_ok();
     tauri::async_runtime::spawn_blocking(move || {
@@ -112,7 +117,16 @@ pub async fn local_status(state: State<'_, AppState>) -> CommandResult<LocalStat
             running,
             version,
             problem,
-            models: models.into_iter().map(|model| InstalledModel { fit: fit(model.size_bytes), model }).collect(),
+            models: models
+                .into_iter()
+                .map(|model| {
+                    let window_options = recommended::window_options(model.context_length, model.size_bytes, model.kv_bytes_per_token, memory);
+                    let chosen = storage.with_storage(|storage| storage.setting_get::<u64>(local::WINDOW_SETTING, &model.name)).ok().flatten();
+                    let window = chosen.unwrap_or_else(|| recommended::default_window(&window_options));
+                    let fit = memory.map(|memory| recommended::window_fit(model.size_bytes, model.kv_bytes_per_token, window, memory));
+                    InstalledModel { fit, window, window_options, model }
+                })
+                .collect(),
             loaded,
             recommended,
             memory_bytes: memory,
@@ -231,4 +245,13 @@ pub async fn local_allow_loopback() -> CommandResult<bool> {
     })
     .await
     .map_err(|error| DesktopError::io(error.to_string()))?
+}
+
+/// Sets the context window a model runs with, from the next session on.
+#[tauri::command]
+pub fn local_set_window(name: String, tokens: u64, state: State<'_, AppState>) -> CommandResult<()> {
+    if !(4_096..=1_048_576).contains(&tokens) {
+        return Err(DesktopError::unsupported("that is not a context window size"));
+    }
+    state.with_storage(|storage| storage.setting_set(local::WINDOW_SETTING, name.trim(), &tokens)).map_err(|error| DesktopError::io(error.to_string()))
 }

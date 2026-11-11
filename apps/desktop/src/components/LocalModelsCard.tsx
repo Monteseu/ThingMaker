@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 import { type LocalStatus, type ProviderInfo } from "@thingmaker/contracts";
 import { api } from "../ipc";
 import { useStore } from "../store";
-import { bytes, fitLabel } from "../localModels";
+import { bytes, fitLabel, windowLabel } from "../localModels";
 import { ProviderLogo } from "./ProviderLogo";
 import { t } from "../i18n";
 
@@ -80,6 +80,15 @@ export function LocalModelsCard({ info }: { info: ProviderInfo }) {
       setOther("");
     } catch (error) {
       setDownloads((all) => ({ ...all, [model]: { status: "", error: String((error as { message?: string })?.message ?? error) } }));
+    }
+  };
+
+  const setWindow = async (name: string, tokens: number) => {
+    try {
+      await api.localSetWindow(name, tokens);
+      await refresh();
+    } catch (error) {
+      setProblem(String((error as { message?: string })?.message ?? error));
     }
   };
 
@@ -181,6 +190,7 @@ export function LocalModelsCard({ info }: { info: ProviderInfo }) {
                     <th>{t("Size")}</th>
                     <th>{t("Parameters")}</th>
                     <th>{t("Can be")}</th>
+                    <th>{t("Window")}</th>
                     <th>{t("Here")}</th>
                     <th />
                   </tr>
@@ -192,6 +202,17 @@ export function LocalModelsCard({ info }: { info: ProviderInfo }) {
                       <td>{bytes(model.sizeBytes)}</td>
                       <td>{[model.parameterSize, model.quantization].filter(Boolean).join(" · ")}</td>
                       <td>{model.capabilities.includes("tools") ? t("Chat · Agent") : t("Chat only")}</td>
+                      <td>
+                        <select aria-label={t("Context window for {model}", { model: model.name })} className="input local-window" onChange={(event) => void setWindow(model.name, Number(event.target.value))} value={model.window}>
+                          {model.windowOptions.map((option) => (
+                            <option key={option.tokens} value={option.tokens}>
+                              {windowLabel(option.tokens)}
+                              {option.max ? ` · ${t("max")}` : ""}
+                              {fitLabel(option.fit) ? ` · ${fitLabel(option.fit)}` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
                       <td>{fitLabel(model.fit) && <span className={`local-fit local-fit-${model.fit}`}>{fitLabel(model.fit)}</span>}</td>
                       <td>
                         <button className="button button-small" onClick={() => void remove(model.name)} type="button">
@@ -203,6 +224,7 @@ export function LocalModelsCard({ info }: { info: ProviderInfo }) {
                 </tbody>
               </table>
             )}
+            <p className="small muted local-line">{t("The window is how much of the conversation the model keeps in mind. Bigger needs more memory; a change applies to new sessions.")}</p>
             {toolModels > 0 && <p className="small muted local-line">{t("Chats answer in seconds. Agents are slow on a laptop: each step reads the agent's instructions again, so a small task can take several minutes.")}</p>}
             {status.models.length > 0 && toolModels === 0 && <p className="small muted local-line">{t("None of these can use tools, so none can be an agent. They can all chat.")}</p>}
           </div>
