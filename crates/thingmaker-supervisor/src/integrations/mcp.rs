@@ -428,6 +428,9 @@ pub fn install_args(provider: Provider, spec: &McpServerSpec, scope: McpScope) -
         return Err(format!("\"{}\" is not a usable server name: letters, digits, - and _ only", spec.name));
     }
     match provider {
+        // A local session never uses the person's MCP servers: they could
+        // carry its work off the computer.
+        Provider::Local => Err("Local Models sessions do not use MCP servers".into()),
         Provider::Claude => {
             let json = match &spec.transport {
                 McpTransport::Stdio { command, args, env } => json!({ "type": "stdio", "command": command, "args": args, "env": env }),
@@ -504,6 +507,7 @@ pub fn remove_args(provider: Provider, name: &str, scope: McpScope) -> Vec<Strin
     match provider {
         Provider::Claude => vec!["mcp".into(), "remove".into(), "-s".into(), if scope == McpScope::Local { "local".into() } else { "user".into() }, name.into()],
         Provider::Codex | Provider::Gemini => vec!["mcp".into(), "remove".into(), name.into()],
+        Provider::Local => Vec::new(),
     }
 }
 

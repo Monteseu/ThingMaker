@@ -70,6 +70,13 @@ impl WorkerLauncher for MockLauncher {
                 options.permission_mode = PermissionStance::AcceptEdits;
                 (LaunchTarget { executable: python, prefix_args: vec![fixture("mock-agy.py")] }, AgentLaunch::Gemini(options))
             }
+            // A local worker as the Claude mock, slow enough for a second
+            // local job to have to wait its turn.
+            Provider::Local => {
+                let mut options = ClaudeLaunchOptions::new(&spec.root, python.clone(), vec![fixture("mock-claude-acp.py"), "--slow=2".into()]);
+                options.permission_mode = PermissionStance::AcceptEdits;
+                (LaunchTarget::executable(python), AgentLaunch::Claude(options))
+            }
         };
         Box::pin(async move {
             let mut config = SessionActorConfig::new(target, launch);
@@ -398,4 +405,25 @@ async fn a_free_worker_takes_the_next_job_and_closes_once_idle() {
     delegation.await_jobs("cx-o", &[third.id], Duration::from_secs(30), false).await.unwrap();
     assert_eq!(launcher.launched.lock().unwrap().len(), 2);
     delegation.release("cx-o").await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn local_jobs_take_turns_on_the_one_gpu() {
+    let Some((delegation, launcher, _)) = service(&[]) else { return };
+    let dir = tempfile::tempdir().unwrap();
+    let slot = |name: &str| WorkerSlot { name: name.into(), provider: Provider::Local, model: Some("@agent/qwen3:8b".into()), effort: None, capabilities: vec!["code".into()], note: None, prompt: None };
+    delegation.register("lm-o", Provider::Local, dir.path().to_path_buf(), Combo { workers: vec![slot("first"), slot("second")], native_subagents: false });
+    let task = |worker: &str| serde_json::from_value::<thingmaker_supervisor::delegation::jobs::DelegateArgs>(json!({ "task": "tidy the notes", "worker": worker })).unwrap();
+    let one = delegation.delegate("lm-o", task("first")).unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let two = delegation.delegate("lm-o", task("second")).unwrap();
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    let waiting = delegation.jobs("lm-o").into_iter().find(|job| job.id == two.id).unwrap();
+    assert_eq!(waiting.status, JobStatus::Waiting, "{waiting:?}");
+    assert_eq!(waiting.waiting_reason.as_deref(), Some(thingmaker_supervisor::delegation::jobs::LOCAL_WAIT_REASON));
+    assert_eq!(launcher.launched.lock().unwrap().len(), 1, "the second worker is not opened while the first runs");
+    let done = delegation.await_jobs("lm-o", &[one.id.clone(), two.id.clone()], Duration::from_secs(30), false).await.unwrap();
+    assert!(done.iter().all(|job| job.status == JobStatus::Succeeded), "{done:?}");
+    assert!(done[1].started_at_unix_ms <= done[0].finished_at_unix_ms.unwrap(), "both were asked for at once");
+    delegation.release("lm-o").await;
 }

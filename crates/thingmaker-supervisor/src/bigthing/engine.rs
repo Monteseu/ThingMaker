@@ -1542,7 +1542,7 @@ impl Engine {
                 let landed = match target_live.provider {
                     Provider::Codex => Orchestrator::Codex,
                     Provider::Claude => Orchestrator::Claude,
-                    Provider::Gemini => Orchestrator::Either,
+                    Provider::Gemini | Provider::Local => Orchestrator::Either,
                 };
                 if goal.orchestrator != Orchestrator::Either && goal.orchestrator != landed {
                     let _ = self.db(|storage| storage.odyssey_edit_goal(goal_id, &GoalEdit { orchestrator: Some(landed), ..GoalEdit::default() }));

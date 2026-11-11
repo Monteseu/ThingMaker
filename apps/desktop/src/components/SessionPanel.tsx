@@ -30,6 +30,8 @@ import { bigThingTurnOf, splitSideNotes, userMessageText } from "../bigThingTurn
 import { AttachmentThumb, BlockImage, InlineImage, workspaceImageRenderer } from "./InlineImage";
 import { Markdown } from "../markdown";
 import { copiesItself, forkPointAt, splitNestedReports } from "../fork";
+import { isLocalChat } from "../localModels";
+import { LocalBadge } from "./LocalBadge";
 import { hasConversation } from "../team";
 import { NestedBanner, NestedReportsCard, NestedReportsStrip } from "./NestedSessions";
 import type { Card } from "../projection";
@@ -943,10 +945,13 @@ export function SessionPanel({ sessionId }: { sessionId: string }) {
   // A worker does a task for its orchestrator; a Big Thing is led from the
   // orchestrator's session, so a worker has no Big Thing tab.
   const isWorker = useStore((s) => isWorkerIn(s, sessionId, s.sessions[sessionId]));
+  // A local chat only talks: no helpers, Big Thing or Ultra-Review.
+  const localChat = isLocalChat(session?.snapshot);
   const setSessionTab = useStore((s) => s.setSessionTab);
   useEffect(() => {
-    if (isWorker && (tab === "odyssey" || tab === "ultrareview")) setSessionTab("transcript");
-  }, [isWorker, tab, setSessionTab]);
+    if ((isWorker || localChat) && (tab === "odyssey" || tab === "ultrareview")) setSessionTab("transcript");
+    if (localChat && tab === "agents") setSessionTab("transcript");
+  }, [isWorker, localChat, tab, setSessionTab]);
   const cardImages = useMemo(
     () => (session ? assignImages(session.projection.cards, session.projection.toolCalls, workspaceRoot) : new Map<string, ImageRef[]>()),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1040,8 +1045,8 @@ export function SessionPanel({ sessionId }: { sessionId: string }) {
   const agentsLabel = `${t("Agents")}${agentsBusy > 0 ? ` · ${agentsBusy}` : ""}${jobsWaiting > 0 ? ` · ${t("{n} waiting", { n: jobsWaiting })}` : ""}`;
   const tabs: { id: typeof tab; label: string; waiting?: string }[] = [
     { id: "transcript", label: t("Conversation") },
-    { id: "agents", label: agentsLabel },
-    ...(isWorker
+    ...(localChat ? [] : [{ id: "agents" as const, label: agentsLabel }]),
+    ...(isWorker || localChat
       ? []
       : [
           { id: "odyssey" as const, label: odysseyLabel, ...(docWaiting ? { waiting: t("A document is waiting for you in Big Thing") } : {}) },
@@ -1355,7 +1360,8 @@ export function SessionPanel({ sessionId }: { sessionId: string }) {
           </button>
           <ConfigPickers configOptions={configOptions} disabled={projection.process === "exited" || busy !== null} sessionId={sessionId} />
           {!configOptions && <span className="chip small">{t("the account's default model")}</span>}
-          <TeamChip disabled={projection.process === "exited"} sessionId={sessionId} />
+          {!localChat && <TeamChip disabled={projection.process === "exited"} sessionId={sessionId} />}
+          {session.snapshot.provider === "local" && <LocalBadge configOptions={configOptions} localChat={localChat} sessionId={sessionId} />}
           <span className="composer-spacer" />
           {active && (
             <button aria-label={t("Cancel turn")} className="icon-button" onClick={() => void cancel(sessionId)} title={t("Cancel the current turn")} type="button">

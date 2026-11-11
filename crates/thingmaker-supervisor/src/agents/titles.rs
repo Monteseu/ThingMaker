@@ -134,7 +134,8 @@ pub fn provider_title(provider: Provider, home: &Path, root: &Path, agent_sessio
             let codex_home = std::env::var_os("CODEX_HOME").map(std::path::PathBuf::from).unwrap_or_else(|| home.join(".codex"));
             codex_title(&codex_home, agent_session_id)
         }
-        Provider::Gemini => None,
+        // A local chat keeps no title of its own; its first prompt is used.
+        Provider::Gemini | Provider::Local => None,
     }
 }
 

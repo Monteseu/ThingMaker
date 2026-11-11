@@ -286,12 +286,17 @@ pub struct DelegateArgs {
 }
 
 /// The team a job routes against: for a pinned job, its own worker alone, so
-/// the router has nobody to move it to.
-fn team_for(combo: &Combo, args: &DelegateArgs) -> Combo {
-    match args.worker.as_deref().filter(|_| args.pinned).and_then(|name| combo.worker(name)) {
+/// the router has nobody to move it to. A local lead's team is its local
+/// helpers only: a private session's work never leaves the computer.
+fn team_for(combo: &Combo, args: &DelegateArgs, lead: Provider) -> Combo {
+    let mut team = match args.worker.as_deref().filter(|_| args.pinned).and_then(|name| combo.worker(name)) {
         Some(named) => Combo { workers: vec![named.clone()], ..combo.clone() },
         None => combo.clone(),
+    };
+    if lead == Provider::Local {
+        team.workers.retain(|worker| worker.provider == Provider::Local);
     }
+    team
 }
 
 struct Orchestrator {
@@ -338,7 +343,13 @@ struct Inner {
     extensions: std::sync::RwLock<Vec<Arc<dyn TeamExtension>>>,
     reaper: std::sync::atomic::AtomicBool,
     idle: Mutex<Duration>,
+    /// Local models share this computer's GPU, so one local job runs at a
+    /// time; two side by side would each crawl.
+    local_gate: Arc<tokio::sync::Semaphore>,
 }
+
+/// What a local job waiting its turn says.
+pub const LOCAL_WAIT_REASON: &str = "Waiting for the local model: one local job runs at a time";
 
 /// The delegation service. Cloning shares it.
 #[derive(Clone)]
@@ -377,6 +388,7 @@ impl Delegation {
                 extensions: std::sync::RwLock::new(Vec::new()),
                 reaper: std::sync::atomic::AtomicBool::new(false),
                 idle: Mutex::new(WORKER_IDLE),
+                local_gate: Arc::new(tokio::sync::Semaphore::new(1)),
             }),
         }
     }
@@ -547,7 +559,7 @@ impl Delegation {
             };
             let root = orchestrator.root.clone();
             let orchestrator_provider = orchestrator.provider;
-            let combo = team_for(&orchestrator.combo, &args);
+            let combo = team_for(&orchestrator.combo, &args, orchestrator.provider);
             let running = state
                 .order
                 .get(session)
@@ -661,6 +673,8 @@ impl Delegation {
         let mut wait = queued;
         let mut attempt = 0u32;
         let mut next_prompt = prompt.clone();
+        // Held until the job ends, for a job on a local model.
+        let mut local_turn: Option<tokio::sync::OwnedSemaphorePermit> = None;
         loop {
             if let Some(pending) = wait.take() {
                 attempt += 1;
@@ -680,7 +694,7 @@ impl Delegation {
                         state
                             .orchestrators
                             .get(&spec.orchestrator)
-                            .map(|orchestrator| route(&team_for(&orchestrator.combo, &args), args.worker.as_deref(), args.capability.as_deref(), &state.quotas, &excluded, now_unix_ms()))
+                            .map(|orchestrator| route(&team_for(&orchestrator.combo, &args, orchestrator.provider), args.worker.as_deref(), args.capability.as_deref(), &state.quotas, &excluded, now_unix_ms()))
                     };
                     match routed {
                         Some(Ok(next)) => {
@@ -709,6 +723,12 @@ impl Delegation {
                             return;
                         }
                     }
+                }
+            }
+            if spec.slot.provider == Provider::Local && local_turn.is_none() {
+                match self.wait_for_local_model(&job_id).await {
+                    Some(permit) => local_turn = Some(permit),
+                    None => return,
                 }
             }
             let worker = match actor.take() {
@@ -773,7 +793,7 @@ impl Delegation {
                         let next = {
                             let state = self.state();
                             state.orchestrators.get(&spec.orchestrator).map(|orchestrator| {
-                                let team = team_for(&orchestrator.combo, &args);
+                                let team = team_for(&orchestrator.combo, &args, orchestrator.provider);
                                 match args.capability.as_deref() {
                                     Some(capability) => route(&team, None, Some(capability), &state.quotas, &excluded, now_unix_ms()),
                                     // By the refused worker's name: the router finds
@@ -988,6 +1008,36 @@ impl Delegation {
         self.update(job_id, |record| record.actor = None);
         let _ = worker.stop().await;
         self.inner.launcher.released(&worker.handle().id);
+    }
+
+    /// Waits until no other local job is running, showing why. `None` when
+    /// the job was cancelled while it waited.
+    async fn wait_for_local_model(&self, job_id: &str) -> Option<tokio::sync::OwnedSemaphorePermit> {
+        if let Ok(permit) = Arc::clone(&self.inner.local_gate).try_acquire_owned() {
+            return Some(permit);
+        }
+        self.update(job_id, |record| {
+            if record.view.status != JobStatus::Cancelled {
+                record.view.status = JobStatus::Waiting;
+                record.view.waiting_reason = Some(LOCAL_WAIT_REASON.into());
+                record.view.retry_at_unix_ms = None;
+            }
+        });
+        loop {
+            if self.cancelled(job_id) {
+                return None;
+            }
+            if let Ok(permit) = Arc::clone(&self.inner.local_gate).try_acquire_owned() {
+                self.update(job_id, |record| {
+                    if record.view.status == JobStatus::Waiting {
+                        record.view.status = JobStatus::Starting;
+                        record.view.waiting_reason = None;
+                    }
+                });
+                return Some(permit);
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
     }
 
     fn cancelled(&self, job_id: &str) -> bool {
@@ -1330,14 +1380,26 @@ mod tests {
         let slot = |name: &str, provider| WorkerSlot { name: name.into(), provider, model: None, effort: None, capabilities: Vec::new(), note: None, prompt: None };
         let combo = Combo { workers: vec![slot("Reviewer A", Provider::Claude), slot("Reviewer B", Provider::Codex)], native_subagents: false };
         let pinned = DelegateArgs { task: "review".into(), worker: Some("Reviewer A".into()), pinned: true, ..DelegateArgs::default() };
-        assert_eq!(team_for(&combo, &pinned).workers.iter().map(|w| w.name.as_str()).collect::<Vec<_>>(), ["Reviewer A"]);
+        assert_eq!(team_for(&combo, &pinned, Provider::Claude).workers.iter().map(|w| w.name.as_str()).collect::<Vec<_>>(), ["Reviewer A"]);
         // With Claude spent, the router has nobody to move it to: it waits.
         let mut quotas = QuotaBook::default();
         quotas.note_refusal(Provider::Claude, 1_000);
-        assert!(route(&team_for(&combo, &pinned), Some("Reviewer A"), None, &quotas, &[], 1_000).is_err());
+        assert!(route(&team_for(&combo, &pinned, Provider::Claude), Some("Reviewer A"), None, &quotas, &[], 1_000).is_err());
         assert!(route(&combo, Some("Reviewer A"), None, &quotas, &[], 1_000).unwrap().rerouted_from.is_some(), "unpinned, it would move");
         let free = DelegateArgs { pinned: false, ..pinned };
-        assert_eq!(team_for(&combo, &free).workers.len(), 2);
+        assert_eq!(team_for(&combo, &free, Provider::Claude).workers.len(), 2);
+    }
+
+    #[test]
+    fn a_local_lead_hires_only_local_helpers() {
+        let slot = |name: &str, provider| WorkerSlot { name: name.into(), provider, model: None, effort: None, capabilities: Vec::new(), note: None, prompt: None };
+        let combo = Combo { workers: vec![slot("Cloud", Provider::Claude), slot("Coder", Provider::Local)], native_subagents: false };
+        let args = DelegateArgs { task: "edit".into(), ..DelegateArgs::default() };
+        let team = team_for(&combo, &args, Provider::Local);
+        assert_eq!(team.workers.iter().map(|w| w.name.as_str()).collect::<Vec<_>>(), ["Coder"]);
+        let named_cloud = DelegateArgs { worker: Some("Cloud".into()), ..args.clone() };
+        assert!(route(&team_for(&combo, &named_cloud, Provider::Local), Some("Cloud"), None, &QuotaBook::default(), &[], 1_000).is_err(), "asking for a cloud helper by name fails");
+        assert_eq!(team_for(&combo, &args, Provider::Claude).workers.len(), 2, "a cloud lead may hire a local helper");
     }
 
     #[test]

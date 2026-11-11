@@ -63,6 +63,12 @@ pub fn project_dir(home: &Path, root: &Path) -> PathBuf {
     if !normal.is_dir() && legacy.is_dir() { legacy } else { normal }
 }
 
+/// A transcript under a Claude Code settings folder other than `~/.claude`
+/// (`CLAUDE_CONFIG_DIR`): a local agent keeps its own.
+pub fn transcript_path_in(config_dir: &Path, root: &Path, session_id: &str) -> PathBuf {
+    config_dir.join("projects").join(slug_for(root)).join(format!("{session_id}.jsonl"))
+}
+
 /// The directory name Claude Code gives a project root.
 pub fn slug_for(root: &Path) -> String {
     let path = root.to_string_lossy();

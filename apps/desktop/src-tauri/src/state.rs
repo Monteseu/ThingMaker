@@ -285,6 +285,16 @@ impl AppState {
                 })?;
                 Ok(ResolvedProvider { provider, program, prefix_args: Vec::new(), source: "discovered" })
             }
+            // Local Models: Ollama's own program. A local agent also needs
+            // the Claude adapter, which its launch resolves for itself.
+            Provider::Local => {
+                if let Some(location) = configured {
+                    return Ok(ResolvedProvider { provider, program: location.program, prefix_args: Vec::new(), source: "settings" });
+                }
+                let program = thingmaker_supervisor::agents::local::find_ollama(&home)
+                    .ok_or_else(|| DesktopError::not_ready("Ollama is not installed. Get it from ollama.com/download to run models on this computer."))?;
+                Ok(ResolvedProvider { provider, program, prefix_args: Vec::new(), source: "discovered" })
+            }
         }
     }
 }

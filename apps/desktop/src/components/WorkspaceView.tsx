@@ -19,7 +19,6 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }) {
   const records = useStore((s) => s.records[workspaceId]);
   const providers = useStore((s) => s.providers);
   const presets = useStore((s) => s.teamPresets);
-  const defaultPresetId = useStore((s) => s.defaultPresetId);
   const openSessionWithPreset = useStore((s) => s.openSessionWithPreset);
   const setView = useStore((s) => s.setView);
   const addWorkspaceByPath = useStore((s) => s.addWorkspaceByPath);
@@ -137,7 +136,6 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }) {
                 type="button"
               >
                 {preset.name}
-                {preset.id === defaultPresetId ? ` ${t("(default)")}` : ""}
               </button>
             );
           })}

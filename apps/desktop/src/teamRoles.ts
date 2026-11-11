@@ -59,8 +59,16 @@ export type Catalogs = Partial<Record<Provider, ProviderModel[]>>;
 
 /** The model to suggest for a role, among the providers that can run. */
 export function suggestModel(role: RoleId, catalogs: Catalogs, usable: readonly Provider[], lead: Provider): { provider: Provider; model?: ProviderModel } {
-  const find = (provider: Provider, pattern: RegExp) => (usable.includes(provider) ? catalogs[provider]?.find((model) => pattern.test(`${model.id} ${model.name}`)) : undefined);
-  const fallback = (provider: Provider) => catalogs[provider]?.find((model) => model.isDefault) ?? catalogs[provider]?.[0];
+  const find = (provider: Provider, pattern: RegExp) => (usable.includes(provider) ? offered(provider).find((model) => pattern.test(`${model.id} ${model.name}`)) : undefined);
+  // Helpers run as agents: a local model that only chats is never suggested.
+  const offered = (provider: Provider) => (catalogs[provider] ?? []).filter((model) => provider !== "local" || model.id.startsWith("@agent/"));
+  const fallback = (provider: Provider) => offered(provider).find((model) => model.isDefault) ?? offered(provider)[0];
+  // A local lead keeps its team local: every role gets a local agent.
+  if (lead === "local") {
+    const local = usable.includes("local") ? offered("local") : [];
+    const model = (role === "coder" ? local.find((entry) => /coder/i.test(entry.id)) : undefined) ?? local[0];
+    return model ? { provider: "local", model } : { provider: "local" };
+  }
   const first = (...tries: Array<[Provider, RegExp]>) => {
     for (const [provider, pattern] of tries) {
       const model = find(provider, pattern);

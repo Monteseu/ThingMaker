@@ -68,7 +68,15 @@ impl DelegationRunner {
 
 impl Runner for DelegationRunner {
     fn open(&self, review: &Review) -> Result<(), String> {
-        let lead = review.chair().map(|chair| chair.provider).unwrap_or(Provider::Claude);
+        // The registered lead stands in for the review itself. A local one
+        // keeps its team local, which is right only for an all-local panel:
+        // a local Chair beside cloud reviewers must not lock them out.
+        let all_local = review.reviewers.iter().all(|reviewer| reviewer.provider == Provider::Local);
+        let lead = match review.chair().map(|chair| chair.provider) {
+            Some(Provider::Local) if !all_local => Provider::Claude,
+            Some(provider) => provider,
+            None => Provider::Claude,
+        };
         let combo = Combo { workers: review.reviewers.iter().map(Self::slot).collect(), native_subagents: false };
         self.delegation.register(&review.orchestrator_key(), lead, PathBuf::from(&review.root), combo);
         Ok(())

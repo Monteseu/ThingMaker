@@ -168,15 +168,19 @@ function ModelPicker({
       )}
       <div className="chart-picker-grid">
         {providers.map((provider) => {
-          const ready = usable.includes(provider);
-          const catalog = catalogs[provider] ?? [];
-          const options: Array<ProviderModel | undefined> = catalog.length > 0 ? catalog : [undefined];
+          // A local lead only hires local helpers, so its work stays on this computer.
+          const privateLead = picking.kind !== "lead" && lead === "local" && provider !== "local";
+          const ready = usable.includes(provider) && !privateLead;
+          // Leads and helpers run as agents; a local model that only chats is not offered.
+          const catalog = (catalogs[provider] ?? []).filter((model) => provider !== "local" || model.id.startsWith("@agent/"));
+          const options: Array<ProviderModel | undefined> = catalog.length > 0 ? catalog : provider === "local" ? [] : [undefined];
           return (
             <div className="chart-picker-col" key={provider}>
               <div className="chart-picker-provider">
                 <ProviderLogo provider={provider} size={18} />
                 {PROVIDER_LABELS[provider]}
-                {!ready && <span className="chip small chip-warn">{t("not signed in")}</span>}
+                {privateLead ? <span className="chip small">{t("not with a local lead")}</span> : !ready && <span className="chip small chip-warn">{provider === "local" ? t("Ollama is not running") : t("not signed in")}</span>}
+                {provider === "local" && ready && <span className="chip small chip-private">{t("free")}</span>}
               </div>
               {options.map((model) => {
                 const isCurrent = current?.provider === provider && (current.model ?? undefined) === model?.id;
@@ -201,6 +205,7 @@ function ModelPicker({
                   </button>
                 );
               })}
+              {provider === "local" && options.length === 0 && ready && <span className="small muted">{t("No installed model can use tools. Get one in Providers.")}</span>}
             </div>
           );
         })}
@@ -360,7 +365,8 @@ export function TeamChart({ orchestrator, combo, onChange }: { orchestrator: Orc
   }, [workers.length, orchestrator.provider, orchestrator.model]);
 
   const hintFor = (worker: WorkerSlot): string | null => {
-    if (!usable.includes(worker.provider)) return t("{provider} is not signed in", { provider: PROVIDER_LABELS[worker.provider] });
+    if (orchestrator.provider === "local" && worker.provider !== "local") return t("A local lead does not hire it: its work would leave this computer");
+    if (!usable.includes(worker.provider)) return worker.provider === "local" ? t("Ollama is not running") : t("{provider} is not signed in", { provider: PROVIDER_LABELS[worker.provider] });
     if (quotas[worker.provider]?.status === "rejected") return t("{provider} is out of quota", { provider: PROVIDER_LABELS[worker.provider] });
     if (worker.model && (catalogs[worker.provider]?.length ?? 0) > 0 && !findModel(catalogs, worker.provider, worker.model)) return t("Not in {provider}'s model list now", { provider: PROVIDER_LABELS[worker.provider] });
     if (findModel(catalogs, worker.provider, worker.model)?.needsCredits) return t("Uses credits beyond the plan");

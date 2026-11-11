@@ -38,7 +38,7 @@ const OUTPUT_TAIL_BYTES: usize = 4096;
 pub fn tested_with(provider: Provider) -> Option<&'static str> {
     match provider {
         Provider::Claude => Some("0.89.1"),
-        Provider::Codex | Provider::Gemini => None,
+        Provider::Codex | Provider::Gemini | Provider::Local => None,
     }
 }
 
@@ -132,6 +132,7 @@ fn package_dir_of(file: &Path, name: &str) -> Option<PathBuf> {
 /// program is the Node that runs it).
 pub fn channel(provider: Provider, program: &Path, prefix_args: &[String]) -> Channel {
     match provider {
+        Provider::Local => Channel::Unmanaged { hint: "Ollama updates itself from its own app. Local agents use the Claude Code adapter, which updates with Claude Code.".into() },
         Provider::Claude => {
             let script = prefix_args.first().map(PathBuf::from);
             match script.as_deref().and_then(|script| package_dir_of(script, super::claude::launch::ADAPTER_PACKAGE)).and_then(|dir| npm_install(&dir)) {

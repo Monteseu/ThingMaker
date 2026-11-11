@@ -20,6 +20,10 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => () => undefi
 import { EMPTY_SESSION_USAGE, useStore, type LiveSession } from "./store";
 import { emptyProjection } from "./projection";
 import { TeamChip } from "./components/TeamEditor";
+import { ConfigPickers } from "./components/ConfigPickers";
+import { ProviderBadge } from "./components/ProviderMark";
+import { presetMatches } from "./team";
+import { isRetiredModel } from "@thingmaker/contracts";
 
 const model = (id: string, name: string, efforts: string[]): ProviderModel => ({ id, name, needsCredits: false, efforts, inputImage: true, isDefault: false });
 const catalogs = {
@@ -120,5 +124,49 @@ describe("team chip", () => {
     fireEvent.click(screen.getByRole("button", { name: /team: / }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Go to Teams…" }));
     expect(setView).toHaveBeenCalledWith({ kind: "teams" });
+  });
+});
+
+describe("a new session", () => {
+  const solo: TeamPreset = { id: "p3", name: "Solo", orchestrator: { provider: "claude", model: "opus" }, combo: { workers: [], nativeSubagents: false }, updatedAt: 1 };
+
+  it("has no team: the chip offers to set one, and the model stays free", () => {
+    useStore.setState({ teams: {}, teamPresets: [studio, solo] } as never);
+    render(<TeamChip disabled={false} sessionId="s1" />);
+    expect(screen.getByRole("button", { name: /Set team/ })).toBeTruthy();
+    expect(presetMatches(solo, "claude", { workers: [], nativeSubagents: false })).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: /Set team/ }));
+    expect(screen.queryByText("This session's own team")).toBeNull();
+    expect(within(screen.getByRole("menu")).getByText("Art Fixer")).toBeTruthy();
+  });
+
+  it("offers Ultracode inside the model menu, not as a chip", () => {
+    const withUltracode = [...options, { id: "ultracode", name: "Ultracode", type: "select", currentValue: "off", options: [{ value: "off", name: "Off" }, { value: "on", name: "On" }] }];
+    render(<ConfigPickers configOptions={withUltracode} disabled={false} sessionId="s1" />);
+    expect(screen.queryByRole("combobox")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Sonnet 5.5/ }));
+    const group = screen.getByRole("group", { name: "Ultracode" });
+    fireEvent.click(within(group).getByRole("button", { name: "On" }));
+    expect(setConfigOption).toHaveBeenCalledWith("s1", "ultracode", "on");
+  });
+
+  it("hides older model generations but keeps the one a session is on", () => {
+    expect(isRetiredModel("claude", { id: "haiku", name: "Haiku 4.5" })).toBe(true);
+    expect(isRetiredModel("claude", { id: "claude-sonnet-4-5-20250929", name: "Sonnet 4.5" })).toBe(true);
+    expect(isRetiredModel("gemini", { id: "claude-opus-4-6-thinking", name: "Claude Opus 4.6 (Thinking)" })).toBe(true);
+    expect(isRetiredModel("codex", { id: "gpt-5.6-sol", name: "GPT-5.6 Sol" })).toBe(true);
+    for (const [provider, id, name] of [["claude", "opus", "Opus 5.5"], ["claude", "claude-fable-5-1", "Fable 5.1"], ["claude", "default", "Default (recommended)"], ["codex", "gpt-6.1-sol", "GPT-6.1 Sol"], ["gemini", "gemini-3.8-flash", "Gemini 3.8 Flash"]] as const)
+      expect(isRetiredModel(provider, { id, name })).toBe(false);
+    const listed = [{ id: "model", name: "Model", type: "select", currentValue: "haiku", options: [{ value: "opus", name: "Opus 5.5" }, { value: "haiku", name: "Haiku 4.5" }, { value: "claude-sonnet-4-5", name: "Sonnet 4.5" }] }];
+    render(<ConfigPickers configOptions={listed} disabled={false} sessionId="s1" />);
+    fireEvent.click(screen.getByRole("button", { name: /Haiku 4.5/ }));
+    const names = within(screen.getByRole("listbox")).getAllByRole("option").map((option) => option.textContent);
+    expect(names).toEqual(["Opus 5.5", "Haiku 4.5"]);
+  });
+
+  it("draws Local Models with its own mark", () => {
+    const { container } = render(<ProviderBadge provider="local" />);
+    expect(container.querySelector(".provider-local")).toBeTruthy();
+    expect(container.querySelector("linearGradient, radialGradient")).toBeNull();
   });
 });

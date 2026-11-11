@@ -164,17 +164,72 @@ export type ExitInfo = { status: number | null; signal: number | null; forced: b
 /** The subscriptions the desktop drives. Each runs its own official program:
  *  `claude` is Claude Code (through claude-agent-acp), `codex` is Codex
  *  (through its app-server). */
-export type Provider = "claude" | "codex" | "gemini";
-export const PROVIDERS: readonly Provider[] = ["claude", "codex", "gemini"] as const;
-export const PROVIDER_LABELS: Record<Provider, string> = { claude: "Claude Code", codex: "Codex", gemini: "Gemini" };
+export type Provider = "claude" | "codex" | "gemini" | "local";
+export const PROVIDERS: readonly Provider[] = ["claude", "codex", "gemini", "local"] as const;
+export const PROVIDER_LABELS: Record<Provider, string> = { claude: "Claude Code", codex: "Codex", gemini: "Gemini", local: "Local Models" };
 /** Two letters for a tag, so the provider is visible without a second line. */
-export const PROVIDER_SHORT: Record<Provider, string> = { claude: "CC", codex: "CX", gemini: "GM" };
+export const PROVIDER_SHORT: Record<Provider, string> = { claude: "CC", codex: "CX", gemini: "GM", local: "LM" };
 /**
  * Providers that can lead a team. An orchestrator has to take the session's
  * own `team` MCP server; Antigravity's `agy` only reads MCP servers from its
  * global configuration, so Gemini is a worker or a plain session.
  */
-export const ORCHESTRATOR_PROVIDERS: readonly Provider[] = ["claude", "codex"] as const;
+export const ORCHESTRATOR_PROVIDERS: readonly Provider[] = ["claude", "codex", "local"] as const;
+
+/**
+ * Local Models: models in Ollama on this computer, free and private. A model
+ * id carries how it runs: `@chat/<name>` talks and has no tools; `@agent/<name>`
+ * is Claude Code's agent with the local model as its brain, sandboxed so it
+ * reaches only this computer. A bare name is a chat.
+ */
+export type LocalKind = "chat" | "agent";
+
+/**
+ * Older generations kept out of the pickers: Anthropic's 4.x models (from
+ * Claude Code, or as Antigravity lists them) and OpenAI's 5.x. A session or
+ * seat already on one still shows it.
+ */
+export function isRetiredModel(provider: Provider, model: { id: string; name: string }): boolean {
+  const id = model.id.toLowerCase();
+  const name = model.name.toLowerCase();
+  const claude4 = /^claude-(opus|sonnet|haiku|fable)-4(?:[-.@[]|$)/.test(id) || /(?:^|claude\s+)(opus|sonnet|haiku|fable)\s+4(?:\.\d+)?\b/.test(name);
+  if (provider === "claude" || provider === "gemini") return claude4;
+  if (provider === "codex") return /^gpt-5(?:[.-]|$)/.test(id) || /^gpt-5(?:[.\s-]|$)/.test(name);
+  return false;
+}
+export function parseLocalModel(id: string | undefined): { kind: LocalKind; name: string } {
+  if (!id) return { kind: "chat", name: "" };
+  if (id.startsWith("@agent/")) return { kind: "agent", name: id.slice("@agent/".length) };
+  return { kind: "chat", name: id.startsWith("@chat/") ? id.slice("@chat/".length) : id };
+}
+export function localModelId(kind: LocalKind, name: string): string {
+  return `@${kind}/${name}`;
+}
+export type LocalFit = "fits" | "tight" | "too_big";
+export type LocalModelInfo = { name: string; family: string; parameterSize: string; quantization: string; sizeBytes: number; contextLength?: number | null; capabilities: string[]; fit?: LocalFit | null };
+export type LocalLoadedModel = { name: string; sizeBytes: number; contextLength?: number | null };
+export type LocalRecommended = { name: string; purpose: string; sizeBytes: number; agent: boolean; installed: boolean; fit?: LocalFit | null };
+export type LocalStatus = {
+  installed: boolean;
+  running: boolean;
+  version?: string;
+  problem?: string;
+  models: LocalModelInfo[];
+  loaded: LocalLoadedModel[];
+  recommended: LocalRecommended[];
+  memoryBytes?: number;
+  /** How a local agent is kept to this computer: macOS's sandbox, Windows' AppContainer, or not at all (agents then do not start). */
+  privateMode: "sandbox" | "app_container" | "unavailable";
+  /** Windows: whether the AppContainer may reach Ollama yet (a one-time administrator approval). */
+  loopbackAllowed?: boolean;
+  /** Whether Claude Code's adapter is installed, which local agents run on. */
+  agentsAvailable: boolean;
+};
+export type LocalPullEvent =
+  | { kind: "progress"; status: string; completed?: number | null; total?: number | null }
+  | { kind: "done" }
+  | { kind: "cancelled" }
+  | { kind: "failed"; message: string };
 
 export type QuotaStatus = "allowed" | "warning" | "rejected";
 /** One usage window, as the provider names it (`five_hour`, `seven_day_opus`, `primary`, …). */
@@ -1654,6 +1709,12 @@ export const COMMANDS = {
   ultraReviewDecide: "ultra_review_decide",
   ultraReviewDelete: "ultra_review_delete",
   ultraReviewPullRequests: "ultra_review_pull_requests",
+  localStatus: "local_status",
+  localStart: "local_start",
+  localPull: "local_pull",
+  localPullCancel: "local_pull_cancel",
+  localDelete: "local_delete",
+  localAllowLoopback: "local_allow_loopback",
   ultraReviewMarkdown: "ultra_review_markdown",
   ultraReviewPost: "ultra_review_post",
   ultraReviewTrackRecord: "ultra_review_track_record",

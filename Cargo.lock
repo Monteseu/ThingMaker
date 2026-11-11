@@ -4974,6 +4974,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "thingmaker-appcontainer"
+version = "0.2.1"
+dependencies = [
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "thingmaker-desktop"
 version = "0.2.1"
 dependencies = [
@@ -4998,6 +5005,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-updater",
  "tempfile",
+ "thingmaker-appcontainer",
  "thingmaker-supervisor",
  "tokio",
  "tokio-rustls",
@@ -5027,6 +5035,7 @@ dependencies = [
  "serde_json",
  "similar",
  "tempfile",
+ "thingmaker-appcontainer",
  "thiserror 2.0.20",
  "tokio",
  "toml 1.1.5+spec-1.1.0",

@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
   "crates/thingmaker-supervisor",
+  "crates/thingmaker-appcontainer",
   "apps/desktop/src-tauri",
 ]
 

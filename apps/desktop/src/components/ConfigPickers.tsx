@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
-import { asConfigOptions, isConfigOptionGroup, isEffortOption, PROVIDER_LABELS, PROVIDERS, type ConfigOptionChoice, type Provider, type ProviderModel, type SessionConfigOption } from "@thingmaker/contracts";
+import { asConfigOptions, isConfigOptionGroup, isEffortOption, isRetiredModel, parseLocalModel, PROVIDER_LABELS, PROVIDERS, type ConfigOptionChoice, type LocalKind, type Provider, type ProviderModel, type SessionConfigOption } from "@thingmaker/contracts";
 import { t } from "../i18n";
 import { useStore } from "../store";
+import { isLocalModelId, localFacts, localKindLabel, localKindNote } from "../localModels";
 import { hasConversation, presetMatches } from "../team";
 import { IconBolt, IconCheck, IconChevron } from "./icons";
 
@@ -25,6 +26,10 @@ const FAST_ID = "fast";
 function fastOn(option: SessionConfigOption): boolean {
   return option.currentValue === true || option.currentValue === "on";
 }
+
+/** Claude Code's Ultracode switch: shown inside the model menu, beside the
+ *  effort, only when the agent offers it. */
+const ULTRACODE_ID = "ultracode";
 
 /** The effort an agent picks for itself; the slider leaves it out. */
 const DEFAULT_EFFORT = "default";
@@ -95,8 +100,21 @@ function ProviderSwitch({ sessionId }: { sessionId: string }) {
 
 function ModelList({ option, onPick, sessionId }: { option: SessionConfigOption; onPick: (value: string) => void; sessionId: string }) {
   const [filter, setFilter] = useState("");
-  const all = useMemo(() => choices(option), [option]);
   const value = typeof option.currentValue === "string" ? option.currentValue : "";
+  const provider = useStore((s) => s.pendingProvider[sessionId]?.provider ?? s.sessions[sessionId]?.snapshot.provider);
+  // Older generations are left out; the one the session is on stays listed.
+  const offered = useMemo(
+    () => choices(option).filter(({ choice }) => choice.value === value || !provider || !isRetiredModel(provider, { id: choice.value, name: choice.name })),
+    [option, provider, value],
+  );
+  // Local Models list each model twice, as a chat and (when it uses tools)
+  // as an agent: a switch picks which, and the list shows that kind only.
+  const local = offered.some(({ choice }) => isLocalModelId(choice.value));
+  const [kind, setKind] = useState<LocalKind>(parseLocalModel(value).kind);
+  const all = useMemo(
+    () => (local ? offered.filter(({ choice }) => parseLocalModel(choice.value).kind === kind).map(({ group, choice }) => ({ group, choice: { ...choice, ...(choice.description ? { description: localFacts(choice.description) ?? "" } : {}) } })) : offered),
+    [offered, local, kind],
+  );
   const groups = useMemo(() => {
     const needle = filter.trim().toLowerCase();
     const map = new Map<string, ConfigOptionChoice[]>();
@@ -112,6 +130,18 @@ function ModelList({ option, onPick, sessionId }: { option: SessionConfigOption;
   return (
     <div className="model-menu-list">
       <ProviderSwitch sessionId={sessionId} />
+      {local && (
+        <div className="model-menu-local">
+          <div className="model-menu-seg" role="group" aria-label={t("How the local model runs")}>
+            {(["chat", "agent"] as const).map((each) => (
+              <button aria-pressed={kind === each} className={kind === each ? "on" : ""} key={each} onClick={() => setKind(each)} type="button">
+                {localKindLabel(each)}
+              </button>
+            ))}
+          </div>
+          <span className="model-menu-item-note">{localKindNote(kind)}</span>
+        </div>
+      )}
       <div className="model-menu-caption">{t("Select model")}</div>
       {all.length > FILTER_FROM && (
         <input aria-label={t("Filter models")} autoFocus className="input model-menu-filter" onChange={(e) => setFilter(e.target.value)} placeholder={t("Filter {n} models…", { n: all.length })} value={filter} />
@@ -131,7 +161,7 @@ function ModelList({ option, onPick, sessionId }: { option: SessionConfigOption;
             ))}
           </div>
         ))}
-        {groups.length === 0 && <div className="model-menu-group">{t("No model matches")}</div>}
+        {groups.length === 0 && <div className="model-menu-group">{local && kind === "agent" && !filter ? t("No installed model can use tools, so none can be an agent.") : t("No model matches")}</div>}
       </div>
     </div>
   );
@@ -222,7 +252,7 @@ function pendingOptions(modelId: string | undefined, effortId: string | undefine
         configId: "effort",
         name: t("Effort"),
         currentValue: effortId ?? chosen?.defaultEffort ?? "",
-        options: efforts.map((level) => ({ value: level, name: level.charAt(0).toUpperCase() + level.slice(1) })),
+        options: efforts.map((level) => ({ value: level, name: level === "on" || level === "off" ? (level === "on" ? t("Think on") : t("Think off")) : level.charAt(0).toUpperCase() + level.slice(1) })),
       }
     : undefined;
   return { model, effort };
@@ -233,12 +263,14 @@ export function ModelMenu({
   model,
   effort,
   fast,
+  ultracode,
   disabled,
 }: {
   sessionId: string;
   model?: SessionConfigOption | undefined;
   effort?: SessionConfigOption | undefined;
   fast?: SessionConfigOption | undefined;
+  ultracode?: SessionConfigOption | undefined;
   disabled: boolean;
 }) {
   const setConfigOption = useStore((s) => s.setConfigOption);
@@ -280,6 +312,7 @@ export function ModelMenu({
     model = options.model;
     effort = options.effort;
     fast = undefined;
+    ultracode = undefined;
   }
 
   const modelNow = current(model);
@@ -287,6 +320,7 @@ export function ModelMenu({
   const levels = effort ? choices(effort).map((c) => c.choice).filter((c) => c.value !== DEFAULT_EFFORT) : [];
   const effortIndex = levels.findIndex((level) => level.value === effortNow?.choice.value);
   const fastEnabled = fast ? fastOn(fast) : false;
+  const ultracodeEnabled = ultracode ? fastOn(ultracode) : false;
   const set = (option: SessionConfigOption | undefined, value: string) => {
     if (!option || value === option.currentValue) return;
     if (pending) setPending(sessionId, option.configId === "model" ? { provider: pending.provider, model: value } : { ...pending, effort: value });
@@ -301,7 +335,7 @@ export function ModelMenu({
         className={`model-chip ${pending ? "model-chip-pending" : ""}`}
         disabled={disabled}
         onClick={() => {
-          setView(effort || fast ? "main" : "models");
+          setView(effort || fast || ultracode ? "main" : "models");
           setOpen(!open);
         }}
         title={
@@ -316,6 +350,7 @@ export function ModelMenu({
         {pending && <span className="model-chip-provider">{PROVIDER_LABELS[pending.provider]}</span>}
         {fastEnabled && <IconBolt className="model-chip-bolt" size={12} />}
         <span className="model-chip-model">{modelNow?.choice.name ?? t("Model")}</span>
+        {isLocalModelId(modelNow?.choice.value) && <span className="model-chip-effort">{localKindLabel(parseLocalModel(modelNow?.choice.value).kind)}</span>}
         {effortNow && <span className="model-chip-effort">{effortNow.choice.name}</span>}
         <IconChevron open size={11} />
       </button>
@@ -325,7 +360,7 @@ export function ModelMenu({
             <ModelList
               onPick={(value) => {
                 set(model, value);
-                if (effort || fast) setView("main");
+                if (effort || fast || ultracode) setView("main");
                 else setOpen(false);
               }}
               option={model}
@@ -360,6 +395,18 @@ export function ModelMenu({
                 <span className="model-menu-icon-slot" />
               </div>
               {effort && levels.length > 0 && <EffortSlider disabled={disabled} index={effortIndex} levels={levels} onPick={(value) => set(effort, value)} />}
+              {ultracode && (
+                <div className="model-menu-local model-menu-ultracode" title={ultracode.description}>
+                  <span className="model-menu-caption">{t("Ultracode")}</span>
+                  <div aria-label={t("Ultracode")} className="model-menu-seg" role="group">
+                    {(["off", "on"] as const).map((value) => (
+                      <button aria-pressed={(value === "on") === ultracodeEnabled} className={(value === "on") === ultracodeEnabled ? "on" : ""} disabled={disabled} key={value} onClick={() => set(ultracode, value)} type="button">
+                        {value === "on" ? t("On") : t("Off")}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </>
           )}
         </span>
@@ -379,11 +426,12 @@ export function ConfigPickers({ sessionId, configOptions, disabled }: { sessionI
   const model = options.find((option) => option.configId === "model");
   const effort = options.find((option) => isEffortOption(option.configId));
   const fast = options.find((option) => option.configId === FAST_ID);
+  const ultracode = options.find((option) => option.configId === ULTRACODE_ID);
   return (
     <>
-      {(model || effort || fast) && <ModelMenu disabled={disabled} effort={effort} fast={fast} model={model} sessionId={sessionId} />}
+      {(model || effort || fast || ultracode) && <ModelMenu disabled={disabled} effort={effort} fast={fast} model={model} sessionId={sessionId} ultracode={ultracode} />}
       {options.map((option) => {
-        if (option === model || option === effort || option === fast) return null;
+        if (option === model || option === effort || option === fast || option === ultracode) return null;
         // The adapter's own agent profiles (Claude's `agent`): ThingMaker's
         // teams are the way to shape who works, so the picker is not shown.
         if (option.configId === "agent") return null;

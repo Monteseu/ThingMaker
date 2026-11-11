@@ -15,7 +15,12 @@ path = "src/lib.rs"
 name = "thingmaker-mcp"
 path = "src/bin/thingmaker-mcp.rs"
 
+[[bin]]
+name = "thingmaker-local-chat"
+path = "src/bin/thingmaker-local-chat.rs"
+
 [dependencies]
+thingmaker-appcontainer = { path = "../thingmaker-appcontainer" }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

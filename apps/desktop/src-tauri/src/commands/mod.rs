@@ -20,6 +20,7 @@ pub mod bigthing;
 pub mod support;
 pub mod terminal;
 pub mod ultrareview;
+pub mod local;
 pub mod update;
 pub mod workspace;
 

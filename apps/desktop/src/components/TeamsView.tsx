@@ -47,10 +47,9 @@ function starterLabel(starter: StarterId): string {
   }
 }
 
-function PresetEditor({ preset, isDefault }: { preset: TeamPreset; isDefault: boolean }) {
+function PresetEditor({ preset }: { preset: TeamPreset }) {
   const saveTeamPreset = useStore((s) => s.saveTeamPreset);
   const deleteTeamPreset = useStore((s) => s.deleteTeamPreset);
-  const setDefaultPreset = useStore((s) => s.setDefaultPreset);
   const presets = useStore((s) => s.teamPresets);
   const [draft, setDraft] = useState(preset);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -63,10 +62,6 @@ function PresetEditor({ preset, isDefault }: { preset: TeamPreset; isDefault: bo
     <div className="teams-editor">
       <div className="row wrap teams-head">
         <input aria-label={t("Team name")} className="teams-name" onChange={(e) => setDraft({ ...draft, name: e.target.value })} value={draft.name} />
-        <label className="small row">
-          <input checked={isDefault} onChange={(e) => void setDefaultPreset(e.target.checked ? preset.id : null)} type="checkbox" />
-          {t("New sessions start with this team")}
-        </label>
       </div>
 
       <TeamChart combo={draft.combo} onChange={(orchestrator, combo) => setDraft({ ...draft, orchestrator, combo })} orchestrator={draft.orchestrator} />
@@ -194,7 +189,6 @@ function RetrySettings() {
 
 export function TeamsView() {
   const presets = useStore((s) => s.teamPresets);
-  const defaultPresetId = useStore((s) => s.defaultPresetId);
   const saveTeamPreset = useStore((s) => s.saveTeamPreset);
   const loadTeamPresets = useStore((s) => s.loadTeamPresets);
   const providers = useStore((s) => s.providers);
@@ -249,7 +243,6 @@ export function TeamsView() {
                 <button className={`teams-item ${selected?.id === preset.id ? "selected" : ""}`} onClick={() => setSelectedId(preset.id)} title={teamSummary(preset.combo)} type="button">
                   <span className="teams-item-name">
                     {preset.name}
-                    {preset.id === defaultPresetId && <span className="chip small">{t("default")}</span>}
                   </span>
                   <Faces preset={preset} />
                   <span className="small muted">{describe(preset, catalogs)}</span>
@@ -260,7 +253,7 @@ export function TeamsView() {
         </nav>
         <div className="teams-detail">
           {selected ? (
-            <PresetEditor isDefault={selected.id === defaultPresetId} key={selected.id} preset={selected} />
+            <PresetEditor key={selected.id} preset={selected} />
           ) : (
             <div className="teams-empty">
               <p>{t("Make your first team: someone who leads, and helpers it can hand work to.")}</p>

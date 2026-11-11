@@ -52,6 +52,7 @@ fn launch(provider: Provider, root: &std::path::Path, model: Option<String>, eff
             options.permission_mode = PermissionStance::ReadOnly;
             (LaunchTarget::executable(agy), AgentLaunch::Gemini(options))
         }
+        Provider::Local => unimplemented!("local models are exercised in local_chat.rs"),
     }
 }
 
@@ -74,7 +75,7 @@ async fn run(orchestrator: Provider, worker: WorkerSlot) {
     let (model, effort) = match orchestrator {
         Provider::Claude => (Some("sonnet".to_string()), Some("low".to_string())),
         Provider::Codex => (Some("gpt-6-luna".to_string()), Some("low".to_string())),
-        Provider::Gemini => unreachable!("Gemini cannot orchestrate"),
+        Provider::Gemini | Provider::Local => unreachable!("not orchestrated in this test"),
     };
     let (target, mut agent) = launch(orchestrator, scratch.path(), model, effort);
     let key = agent.session_id();

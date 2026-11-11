@@ -135,9 +135,10 @@ function tidy(seat: LooseSeat): UrSeat {
   return { ...rest, ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(focus ? { focus } : {}) };
 }
 
-function SeatCard({ seat, index, count, usable, onChange, onRemove, onChair }: { seat: UrSeat; index: number; count: number; usable: Provider[]; onChange: (seat: UrSeat) => void; onRemove: () => void; onChair: () => void }) {
+function SeatCard({ seat, index, count, usable, mixed, onChange, onRemove, onChair }: { seat: UrSeat; index: number; count: number; usable: Provider[]; mixed: boolean; onChange: (seat: UrSeat) => void; onRemove: () => void; onChair: () => void }) {
   const catalogs = useCatalogs();
-  const models = catalogs[seat.provider] ?? [];
+  // A reviewer reads the code, so a local model sits here as an agent.
+  const models = (catalogs[seat.provider] ?? []).filter((entry) => seat.provider !== "local" || entry.id.startsWith("@agent/"));
   const model = models.find((entry) => entry.id === seat.model);
   const efforts = model?.efforts ?? [];
   return (
@@ -151,11 +152,20 @@ function SeatCard({ seat, index, count, usable, onChange, onRemove, onChair }: {
       </div>
       <label className="ur-field">
         <span>{t("Provider")}</span>
-        <select className="input" onChange={(event) => onChange(tidy({ ...seat, provider: event.target.value as Provider, model: undefined, effort: undefined }))} value={seat.provider}>
+        <select
+          className="input"
+          onChange={(event) => {
+            const provider = event.target.value as Provider;
+            // Local Models has no account default: the first agent model is picked.
+            const first = provider === "local" ? catalogs.local?.find((entry) => entry.id.startsWith("@agent/"))?.id : undefined;
+            onChange(tidy({ ...seat, provider, model: first, effort: undefined }));
+          }}
+          value={seat.provider}
+        >
           {PROVIDERS.map((provider) => (
             <option disabled={!usable.includes(provider)} key={provider} value={provider}>
               {provider === "gemini" ? "Gemini (Antigravity)" : PROVIDER_LABELS[provider]}
-              {usable.includes(provider) ? "" : ` (${t("not signed in")})`}
+              {usable.includes(provider) ? "" : ` (${provider === "local" ? t("Ollama is not running") : t("not signed in")})`}
             </option>
           ))}
         </select>
@@ -171,7 +181,8 @@ function SeatCard({ seat, index, count, usable, onChange, onRemove, onChair }: {
           }}
           value={seat.model ?? ""}
         >
-          <option value="">{t("Account default")}</option>
+          {seat.provider !== "local" && <option value="">{t("Account default")}</option>}
+          {seat.provider === "local" && models.length === 0 && <option value="">{t("No installed model can use tools")}</option>}
           {models.map((entry) => (
             <option key={entry.id} value={entry.id}>
               {entry.name}
@@ -203,6 +214,11 @@ function SeatCard({ seat, index, count, usable, onChange, onRemove, onChair }: {
         </select>
       </label>
       <span className="small muted ur-seat-blurb">{lensBlurb(seat.lens)}</span>
+      {seat.provider === "local" && (
+        <span className={`chip small ${mixed ? "chip-free-not-private" : "chip-private"}`} title={mixed ? t("Cloud reviewers on this panel read what it says, so its work leaves this computer") : t("Every reviewer is local, so the review stays on this computer")}>
+          {mixed ? t("free, not private") : t("free · private")}
+        </span>
+      )}
       <input
         aria-label={t("Reviewer {n}'s focus", { n: index + 1 })}
         className="input ur-focus"
@@ -502,6 +518,7 @@ function UltraReviewSetup({ workspaceId, host, onStarted }: { workspaceId: strin
           {seats.map((entry, index) => (
             <SeatCard
               count={seats.length}
+              mixed={seats.some((other) => other.provider !== "local")}
               index={index}
               key={index}
               onChair={() => setSeats(withChair(seats, index))}

@@ -66,12 +66,42 @@ function Antigravity({ id }: { id: string }) {
   );
 }
 
+/** Each provider's glyph. Exhaustive, so a new provider cannot fall back to
+ *  another's mark. */
+function glyph(provider: Provider, id: string) {
+  switch (provider) {
+    case "claude":
+      return <Claude />;
+    case "codex":
+      return <Codex id={`${id}-codex`} />;
+    case "gemini":
+      return <Antigravity id={`${id}-agy`} />;
+    case "local":
+      return <Local />;
+    default: {
+      const unknown: never = provider;
+      return unknown;
+    }
+  }
+}
+
+/** Local Models: a chip, in the tile's green. */
+function Local() {
+  return (
+    <g fill="none" stroke="#5fbf7a" strokeLinecap="round" strokeWidth="1.8">
+      <rect height="11" rx="2" width="11" x="6.5" y="6.5" />
+      <rect fill="#5fbf7a" height="4" rx="0.8" stroke="none" width="4" x="10" y="10" />
+      <path d="M9.5 3.5v3M14.5 3.5v3M9.5 17.5v3M14.5 17.5v3M3.5 9.5h3M3.5 14.5h3M17.5 9.5h3M17.5 14.5h3" />
+    </g>
+  );
+}
+
 export function ProviderMark({ provider, size = 16 }: { provider: Provider; size?: number }) {
   // React's ids carry characters an SVG `url(#…)` reference cannot.
   const id = `pm${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   return (
     <svg aria-hidden="true" className="provider-mark-glyph" height={size} viewBox={provider === "claude" ? "0 0 512 512" : "0 0 24 24"} width={size}>
-      {provider === "claude" ? <Claude /> : provider === "codex" ? <Codex id={`${id}-codex`} /> : <Antigravity id={`${id}-agy`} />}
+      {glyph(provider, id)}
     </svg>
   );
 }

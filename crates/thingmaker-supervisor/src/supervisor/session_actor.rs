@@ -1039,8 +1039,20 @@ impl ActorState {
         }
     }
 
+    /// Config options as the screens should offer them. A local agent runs
+    /// Claude Code, whose own model list (Opus, Sonnet…) would all mean the
+    /// one local model: it is shown as that model alone, beside the
+    /// permission mode; Claude's other options mean nothing to Ollama.
+    fn shape_options(&self, options: Value) -> Value {
+        shape_local_options(&self.launch, options)
+    }
+
     fn handle_update(&mut self, update: SessionUpdate) {
         self.last_progress = Instant::now();
+        let update = match update {
+            SessionUpdate::ConfigOptions { config_options } => SessionUpdate::ConfigOptions { config_options: self.shape_options(config_options) },
+            other => other,
+        };
         match &update {
             SessionUpdate::ToolCall(patch) | SessionUpdate::ToolCallUpdate(patch) => {
                 if let Some(id) = patch.tool_call_id.clone() {
@@ -1065,14 +1077,14 @@ impl ActorState {
                     // none of those needs to know which agent it is watching.
                     let model = self.selected_model();
                     let event = match self.launch.provider() {
-                        Provider::Claude => claude::subagents::subagent_event(&merged, model.as_deref(), now_unix_ms()),
+                        Provider::Claude | Provider::Local => claude::subagents::subagent_event(&merged, model.as_deref(), now_unix_ms()),
                         Provider::Codex => codex::subagents::subagent_event(&merged, model.as_deref(), now_unix_ms()),
                         Provider::Gemini => None,
                     };
                     if let Some(event) = event {
                         self.emit(SessionEvent::RuntimeEvent(event));
                     }
-                    if self.launch.provider() == Provider::Claude {
+                    if matches!(self.launch.provider(), Provider::Claude | Provider::Local) {
                         self.note_background(&id, &merged);
                     }
                     self.tool_calls.insert(id.clone(), merged);
@@ -1360,8 +1372,8 @@ impl ActorState {
             match self.transport.request("session/set_config_option", params, timeout).await {
                 Ok(result) => {
                     if let Some(options) = result.get("configOptions") {
-                        self.config_options = options.clone();
-                        self.emit(SessionEvent::Update(SessionUpdate::ConfigOptions { config_options: options.clone() }));
+                        self.config_options = self.shape_options(options.clone());
+                        self.emit(SessionEvent::Update(SessionUpdate::ConfigOptions { config_options: self.config_options.clone() }));
                     }
                 }
                 // Not fatal: an agent that will not take the option still
@@ -1391,8 +1403,8 @@ impl ActorState {
         match self.transport.request("session/set_config_option", params, timeout).await {
             Ok(result) => {
                 if let Some(options) = result.get("configOptions") {
-                    self.config_options = options.clone();
-                    self.emit(SessionEvent::Update(SessionUpdate::ConfigOptions { config_options: options.clone() }));
+                    self.config_options = self.shape_options(options.clone());
+                    self.emit(SessionEvent::Update(SessionUpdate::ConfigOptions { config_options: self.config_options.clone() }));
                 }
                 let taken = self.current_config_value(id).as_deref() == Some(value);
                 if !taken {
@@ -1852,7 +1864,7 @@ impl ActorState {
                     }
                     self.agent_session_id = Some(agent_session_id);
                     if let Some(options) = value.get("configOptions") {
-                        self.config_options = options.clone();
+                        self.config_options = self.shape_options(options.clone());
                     }
                     self.set_attachment(AttachmentState::Attached);
                     // The model and the permission mode are config options
@@ -2052,8 +2064,8 @@ impl ActorState {
                 let outcome = match result {
                     Ok(value) => {
                         if let Some(options) = value.get("configOptions") {
-                            self.config_options = options.clone();
-                            self.emit(SessionEvent::Update(SessionUpdate::ConfigOptions { config_options: options.clone() }));
+                            self.config_options = self.shape_options(options.clone());
+                            self.emit(SessionEvent::Update(SessionUpdate::ConfigOptions { config_options: self.config_options.clone() }));
                         }
                         Ok(value)
                     }
@@ -2335,6 +2347,33 @@ pub fn content_blocks_to_values(blocks: &[ContentBlock]) -> Vec<Value> {
         .collect()
 }
 
+fn shape_local_options(launch: &AgentLaunch, options: Value) -> Value {
+    let AgentLaunch::Claude(launch) = launch else { return options };
+    let Some(local) = launch.local.as_ref().filter(|local| local.kind == crate::agents::local::LocalKind::Agent) else { return options };
+    let Value::Array(list) = options else { return options };
+    Value::Array(
+        list.into_iter()
+            .filter_map(|option| {
+                let id = option.get("id").and_then(Value::as_str).unwrap_or_default().to_string();
+                let category = option.get("category").and_then(Value::as_str).unwrap_or_default().to_string();
+                if id == "model" || category == "model" {
+                    Some(serde_json::json!({
+                        "id": id, "name": "Model", "category": "model", "type": "select",
+                        "currentValue": local.model,
+                        "options": [{ "value": local.model, "name": local.model, "description": "Local agent" }]
+                    }))
+                } else if id == "mode" {
+                    Some(option)
+                } else {
+                    // Effort, Fast mode, Ultracode and the rest are Claude's
+                    // own and mean nothing to Ollama.
+                    None
+                }
+            })
+            .collect(),
+    )
+}
+
 /// Claude Code leaves its task-list tools (TaskCreate, TaskUpdate, TaskList)
 /// out of SDK sessions unless this is set. With them, the agent keeps a list
 /// of steps for longer work, which `claude-agent-acp` reports as the session's
@@ -2363,5 +2402,25 @@ mod task_list_tests {
         assert_eq!(task_list_switch(&claude), Some(("CLAUDE_CODE_ENABLE_TODO_TOOLS", "1")));
         let codex = AgentLaunch::Codex(codex::CodexLaunchOptions::new("/work", "/usr/bin/codex"));
         assert_eq!(task_list_switch(&codex), None);
+    }
+
+    #[test]
+    fn a_local_agent_offers_its_own_model_and_not_claudes() {
+        use crate::agents::local::{LocalKind, LocalTarget};
+        let mut options = crate::agents::claude::launch::ClaudeLaunchOptions::new("/w", "/usr/bin/node", vec!["adapter.js".into()]);
+        options.local = Some(LocalTarget { kind: LocalKind::Agent, model: "qwen3:8b".into(), served: "qwen3:8b-thingmaker-16k".into(), window: 16384, home: "/d".into() });
+        let local = AgentLaunch::Claude(options);
+        let advertised = json!([
+            { "id": "mode", "category": "mode", "currentValue": "acceptEdits", "options": [] },
+            { "id": "model", "category": "model", "currentValue": "default", "options": [{ "value": "opus" }, { "value": "sonnet" }] },
+            { "id": "effort", "category": "thought_level", "currentValue": "high", "options": [] },
+            { "id": "ultracode", "category": "other", "currentValue": "off", "options": [] }
+        ]);
+        let shaped = shape_local_options(&local, advertised.clone());
+        let ids: Vec<&str> = shaped.as_array().unwrap().iter().filter_map(|o| o["id"].as_str()).collect();
+        assert_eq!(ids, ["mode", "model"]);
+        assert_eq!(shaped[1]["currentValue"], json!("qwen3:8b"));
+        let claude = AgentLaunch::Claude(crate::agents::claude::launch::ClaudeLaunchOptions::new("/w", "/usr/bin/node", vec!["adapter.js".into()]));
+        assert_eq!(shape_local_options(&claude, advertised.clone()), advertised, "Claude's own sessions are untouched");
     }
 }

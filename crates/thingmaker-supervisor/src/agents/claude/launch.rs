@@ -105,6 +105,9 @@ pub struct ClaudeLaunchOptions {
     /// Appended to Claude Code's own system prompt: an orchestrator's
     /// briefing on its team.
     pub append_system_prompt: Option<String>,
+    /// A Local Models session (`Provider::Local`): a chat started as
+    /// ThingMaker's own chat agent, or Claude Code pointed at Ollama.
+    pub local: Option<crate::agents::local::LocalTarget>,
 }
 
 impl ClaudeLaunchOptions {
@@ -121,6 +124,7 @@ impl ClaudeLaunchOptions {
             permission_mode: PermissionStance::ReadOnly,
             disallowed_tools: Vec::new(),
             append_system_prompt: None,
+            local: None,
         }
     }
 
@@ -136,11 +140,49 @@ impl ClaudeLaunchOptions {
     /// plain session's request stays plain.
     pub fn session_meta(&self) -> Option<serde_json::Value> {
         let mut meta = serde_json::Map::new();
-        if !self.disallowed_tools.is_empty() {
-            meta.insert("claudeCode".into(), serde_json::json!({ "options": { "disallowedTools": self.disallowed_tools } }));
+        let mut disallowed = self.disallowed_tools.clone();
+        if let Some(local) = &self.local {
+            if local.kind == crate::agents::local::LocalKind::Chat {
+                return None;
+            }
+            for tool in local.disallowed_tools() {
+                if !disallowed.contains(&tool) {
+                    disallowed.push(tool);
+                }
+            }
+        }
+        let mut claude_options = serde_json::Map::new();
+        if !disallowed.is_empty() {
+            claude_options.insert("disallowedTools".into(), serde_json::json!(disallowed));
+        }
+        // A local agent reads only its own settings folder: not the
+        // project's settings, rules, skills or MCP servers, which would not
+        // fit its window and could carry its work off the computer.
+        if self.local.is_some() {
+            claude_options.insert("settingSources".into(), serde_json::json!(["user"]));
+            // Claude Code then sends "thinking: disabled", which Ollama
+            // honours: a thinking model answered a sum in 0.4 s without it
+            // and 44 s with it. And no predicted follow-up, which would be a
+            // second request on the same GPU every turn.
+            claude_options.insert("thinking".into(), serde_json::json!({ "type": "disabled" }));
+            claude_options.insert("promptSuggestions".into(), serde_json::json!(false));
+        }
+        if !claude_options.is_empty() {
+            meta.insert("claudeCode".into(), serde_json::json!({ "options": claude_options }));
         }
         // The adapter keeps Claude Code's preset and appends this to it.
-        if let Some(append) = self.append_system_prompt.as_ref().filter(|text| !text.trim().is_empty()) {
+        let mut append = self.append_system_prompt.clone().filter(|text| !text.trim().is_empty());
+        // A local agent's model answers without thinking first: on a laptop,
+        // thinking takes most of a turn (Phase 0: 795 output tokens for
+        // "say hi" with it, 181 without). Qwen3 reads `/no_think` as that
+        // switch; models that do not know it ignore it.
+        if self.local.as_ref().is_some_and(|local| local.kind == crate::agents::local::LocalKind::Agent) {
+            append = Some(match append {
+                Some(text) => format!("{text}\n\n/no_think"),
+                None => "/no_think".to_string(),
+            });
+        }
+        if let Some(append) = append {
             meta.insert("systemPrompt".into(), serde_json::json!({ "append": append }));
         }
         (!meta.is_empty()).then_some(serde_json::Value::Object(meta))

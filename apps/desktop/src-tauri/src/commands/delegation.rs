@@ -71,16 +71,14 @@ fn relay_program() -> Option<PathBuf> {
 }
 
 /// The team a session starts with: the one asked for, else the one it had
-/// last time, else the user's default.
+/// last time, else none. New sessions start without a team; one is chosen
+/// in the composer.
 pub fn starting_combo(state: &AppState, requested: Option<Combo>, row_id: Option<&str>) -> Combo {
     if let Some(combo) = requested {
         return combo.normalized();
     }
     let stored = row_id.and_then(|id| state.with_storage(|s| s.setting_get::<Combo>(COMBO_KEY, &session_scope(id))).ok().flatten());
-    stored
-        .or_else(|| state.with_storage(|s| s.setting_get::<Combo>(COMBO_KEY, GLOBAL_SCOPE)).ok().flatten())
-        .unwrap_or_default()
-        .normalized()
+    stored.unwrap_or_default().normalized()
 }
 
 /// Makes the attachment about to open an orchestrator: registers it, hands
@@ -156,7 +154,7 @@ impl WorkerLauncher for HostLauncher {
             let record = super::workspace::ensure_trusted(&state, record)?;
             let reserved = SessionId::reserve();
             let (target, launch) = super::session::build_launch(&state, &record, spec.slot.provider, spec.slot.model.clone(), spec.slot.effort.clone(), None, reserved.clone())?;
-            let program = target.executable.clone();
+            let program = super::session::program_of(&target, &launch);
             let mut config = SessionActorConfig::new(target, launch);
             config.environment = super::session::launch_environment(&state).with_program_dir(&program);
             config.before_prompt = Some(super::review::turn_snapshots(&state, &record.id, &record.canonical_root));

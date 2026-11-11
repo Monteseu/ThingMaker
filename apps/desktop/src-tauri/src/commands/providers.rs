@@ -45,6 +45,12 @@ fn auth_status(resolved: &ResolvedProvider) -> ProviderAuthStatus {
         Provider::Claude => claude::auth::read_status(&resolved.program, &resolved.prefix_args, Duration::from_secs(30)),
         Provider::Codex => codex::probe::read_status(&resolved.program, None, Duration::from_secs(30)),
         Provider::Gemini => gemini::probe::read_status(&resolved.program, Duration::from_secs(30)),
+        // "Signed in" for Local Models means Ollama answers: there is no
+        // account. Its version stands where an account would.
+        Provider::Local => match thingmaker_supervisor::agents::local::ollama::Ollama::local().version() {
+            Ok(version) => ProviderAuthStatus { provider: Provider::Local, logged_in: Some(true), method: Some("ollama".into()), account: Some(format!("Ollama {version}")), plan: None, problem: None },
+            Err(problem) => ProviderAuthStatus { provider: Provider::Local, logged_in: Some(false), method: Some("ollama".into()), account: None, plan: None, problem: Some(problem) },
+        },
     }
 }
 
@@ -177,6 +183,7 @@ pub fn provider_login_start(provider: Provider, on_event: Channel<LoginEvent>, s
         Provider::Claude => (claude::auth::login_args(&resolved.prefix_args, true), EnvironmentProfile::trusted_local()),
         Provider::Codex => (codex::probe::login_args(), codex::probe::environment(None).with_program_dir(&resolved.program)),
         Provider::Gemini => return Err(DesktopError::unsupported(gemini::probe::SIGN_IN_HINT)),
+        Provider::Local => return Err(DesktopError::unsupported("Local Models need no sign-in: start Ollama instead.")),
     };
     let program: PathBuf = resolved.program;
     let run_id = thingmaker_supervisor::storage::new_id();
@@ -223,6 +230,10 @@ pub async fn provider_models(provider: Provider, state: State<'_, AppState>) -> 
         Provider::Claude => claude::auth::read_models(&resolved.program, &resolved.prefix_args, &scratch, Duration::from_secs(45)).map_err(DesktopError::io),
         Provider::Codex => codex::probe::read_models(&resolved.program, None, Duration::from_secs(45)).map_err(DesktopError::io),
         Provider::Gemini => gemini::probe::read_models(&resolved.program, Duration::from_secs(45)).map_err(DesktopError::io),
+        Provider::Local => {
+            let _ = &resolved;
+            thingmaker_supervisor::agents::local::ollama::Ollama::local().models().map(|models| thingmaker_supervisor::agents::local::catalog(&models)).map_err(DesktopError::not_ready)
+        }
     })
     .await
     .map_err(|error| DesktopError::io(error.to_string()))?
@@ -254,6 +265,7 @@ pub async fn provider_quota(provider: Provider, state: State<'_, AppState>) -> C
             .map_err(|error| DesktopError::io(error.to_string()))??,
         // `agy` reports usage per turn but has no quota question.
         Provider::Gemini => return Err(DesktopError::unsupported("Antigravity does not report its quota; a spent account shows as a refused turn.")),
+        Provider::Local => return Err(DesktopError::unsupported("Local Models are free and have no quota.")),
     };
     // The router places work by the same reading the sidebar shows.
     if let Some(delegation) = state.delegation.get() {
@@ -274,6 +286,7 @@ pub async fn provider_logout(provider: Provider, state: State<'_, AppState>) -> 
         Provider::Gemini => {
             return Err(DesktopError::unsupported("Antigravity signs in and out through its own app: switch the account there, or run `agy` in a terminal."));
         }
+        Provider::Local => return Err(DesktopError::unsupported("Local Models have no account to sign out of.")),
     };
     let program = resolved.program;
     tauri::async_runtime::spawn_blocking(move || {

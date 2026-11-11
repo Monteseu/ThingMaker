@@ -18,6 +18,7 @@ path = "src/main.rs"
 tauri-build = { version = "=2.6.3", features = [] }
 
 [dependencies]
+thingmaker-appcontainer = { path = "../../../crates/thingmaker-appcontainer" }
 thingmaker-supervisor = { path = "../../../crates/thingmaker-supervisor" }
 tauri = { version = "=2.11.5", features = ["tray-icon", "image-png"] }
 tauri-plugin-dialog = "=2.7.3"

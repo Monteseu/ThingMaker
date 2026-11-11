@@ -18,6 +18,7 @@ pub mod claude;
 pub mod codex;
 pub mod events;
 pub mod gemini;
+pub mod local;
 pub mod login;
 pub mod usage;
 pub mod titles;
@@ -68,10 +69,12 @@ pub enum Provider {
     /// Antigravity's `agy`: a worker or a plain session, never an
     /// orchestrator (it cannot take a session's own MCP server).
     Gemini,
+    /// Models in Ollama on this computer: free, and private.
+    Local,
 }
 
 impl Provider {
-    pub const ALL: [Provider; 3] = [Provider::Claude, Provider::Codex, Provider::Gemini];
+    pub const ALL: [Provider; 4] = [Provider::Claude, Provider::Codex, Provider::Gemini, Provider::Local];
 
     /// Whether a session on this provider can lead a team: it has to take
     /// the session's own `team` MCP server.
@@ -84,6 +87,7 @@ impl Provider {
             Self::Claude => "claude",
             Self::Codex => "codex",
             Self::Gemini => "gemini",
+            Self::Local => "local",
         }
     }
 
@@ -95,6 +99,7 @@ impl Provider {
             "claude" => Some(Self::Claude),
             "codex" => Some(Self::Codex),
             "gemini" => Some(Self::Gemini),
+            "local" => Some(Self::Local),
             _ => None,
         }
     }
@@ -105,6 +110,7 @@ impl Provider {
             Self::Claude => "Claude Code",
             Self::Codex => "Codex",
             Self::Gemini => "Gemini",
+            Self::Local => "Local Models",
         }
     }
 }
@@ -119,6 +125,7 @@ pub enum AgentLaunch {
 impl AgentLaunch {
     pub fn provider(&self) -> Provider {
         match self {
+            Self::Claude(options) if options.local.is_some() => Provider::Local,
             Self::Claude(_) => Provider::Claude,
             Self::Codex(_) => Provider::Codex,
             Self::Gemini(_) => Provider::Gemini,
@@ -221,10 +228,15 @@ impl AgentLaunch {
     }
 
     /// Variables this provider's program needs set beyond the documented
-    /// profile: Codex's `CODEX_HOME` for an account that is not the default.
+    /// profile: Codex's `CODEX_HOME` for an account that is not the default,
+    /// and a Local Models session's own (see `agents::local`).
     pub fn environment(&self) -> Vec<(String, String)> {
         match self {
-            Self::Claude(_) | Self::Gemini(_) => Vec::new(),
+            Self::Claude(options) => match &options.local {
+                Some(local) => local.environment(),
+                None => Vec::new(),
+            },
+            Self::Gemini(_) => Vec::new(),
             Self::Codex(options) => options
                 .codex_home
                 .iter()

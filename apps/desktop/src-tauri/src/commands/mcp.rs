@@ -54,6 +54,7 @@ fn program(state: &AppState, provider: Provider) -> CommandResult<PathBuf> {
             locate_claude_binary(&script, &state.home.clone().unwrap_or_default()).ok_or_else(|| DesktopError::not_ready("Claude Code's own program was not found beside the adapter"))
         }
         Provider::Codex | Provider::Gemini => Ok(resolved.program),
+        Provider::Local => Err(DesktopError::unsupported("Local Models sessions do not use MCP servers")),
     }
 }
 

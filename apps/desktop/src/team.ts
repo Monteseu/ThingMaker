@@ -221,7 +221,9 @@ export function readPresets(value: unknown): TeamPreset[] {
  * session's live picker can move them without changing the team.
  */
 export function presetMatches(preset: TeamPreset, provider: Provider, combo: Combo | undefined): boolean {
-  if (!combo || preset.orchestrator.provider !== provider) return false;
+  // No helpers is no team: a session on its own is free to change model and
+  // provider, rather than "running" a lead-only preset such as Solo.
+  if (!combo || combo.workers.length === 0 || preset.orchestrator.provider !== provider) return false;
   const strip = (value: Combo) => JSON.stringify({ workers: value.workers, nativeSubagents: value.nativeSubagents });
   return strip(preset.combo) === strip(combo);
 }

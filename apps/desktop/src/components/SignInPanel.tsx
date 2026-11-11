@@ -15,6 +15,7 @@ import { ProviderLogo } from "./ProviderLogo";
 import { api } from "../ipc";
 import { useStore, type SignInRun } from "../store";
 import { t } from "../i18n";
+import { LocalModelsCard } from "./LocalModelsCard";
 import { UsageMeter } from "./UsageMeter";
 import { IconDots, IconRefresh } from "./icons";
 
@@ -23,6 +24,7 @@ const USES = (): Record<Provider, string> => ({
   claude: t("Uses your Claude Pro, Max, Team or Enterprise plan"),
   codex: t("Uses your ChatGPT plan"),
   gemini: t("Signs in through the Antigravity app"),
+  local: t("Runs models on this computer through Ollama: free, and private"),
 });
 
 /** How it signs in and runs, for the details. */
@@ -30,6 +32,7 @@ const SIGNS_IN_WITH = (): Record<Provider, string> => ({
   claude: t("Your Claude plan, through its ACP adapter"),
   codex: t("Your ChatGPT plan, through its app-server"),
   gemini: t("The Antigravity app's sign-in, through its own CLI"),
+  local: t("Ollama on this computer; there is nothing to sign in to"),
 });
 
 /** Providers whose sign-in lives in another app rather than a flow here. */
@@ -403,9 +406,7 @@ export function SignInPanel() {
         <p className="muted small">{t("Asking each provider…")}</p>
       ) : (
         <ul className="providers">
-          {providers.map((info) => (
-            <ProviderRow info={info} key={info.provider} />
-          ))}
+          {providers.map((info) => (info.provider === "local" ? <LocalModelsCard info={info} key={info.provider} /> : <ProviderRow info={info} key={info.provider} />))}
         </ul>
       )}
     </div>

@@ -10,7 +10,7 @@
  * provider switch is.
  */
 import { useEffect, useRef, useState } from "react";
-import { PROVIDER_LABELS, asConfigOptions, isEffortOption, type Combo, type OrchestratorChoice, type Provider, type TeamPreset, type WorkerSlot } from "@thingmaker/contracts";
+import { EMPTY_COMBO, PROVIDER_LABELS, asConfigOptions, isEffortOption, type Combo, type OrchestratorChoice, type Provider, type TeamPreset, type WorkerSlot } from "@thingmaker/contracts";
 import { useStore } from "../store";
 import { hasConversation, presetMatches, teamSummary, tidyCombo } from "../team";
 import { closestRole, modelName, type Catalogs } from "../teamRoles";
@@ -97,7 +97,7 @@ function TeamCard({ team, provider, started }: { team: Shown; provider: Provider
 
 /** The composer's team button and its menu of saved teams. */
 export function TeamChip({ sessionId, disabled }: { sessionId: string; disabled: boolean }) {
-  const team = useStore((s) => s.teams[sessionId]);
+  const sessionTeam = useStore((s) => s.teams[sessionId]);
   const presets = useStore((s) => s.teamPresets);
   const session = useStore((s) => s.sessions[sessionId]);
   const pending = useStore((s) => s.pendingProvider[sessionId]);
@@ -141,12 +141,15 @@ export function TeamChip({ sessionId, disabled }: { sessionId: string; disabled:
     };
   }, [open]);
 
-  if (!team || !session) return null;
+  if (!session) return null;
+  const team: Combo = sessionTeam ?? EMPTY_COMBO;
   const provider = session.snapshot.provider;
   // The lead the next message goes to: a pending switch is the team's too.
   const leading = pending?.provider ?? provider;
   const current = presets.find((preset) => presetMatches(preset, leading, team));
-  const own: Shown | null = current
+  // No team yet: the chip offers to set one, and there is no "own team" to list.
+  const unset = !current && team.workers.length === 0;
+  const own: Shown | null = current || unset
     ? null
     : (() => {
         const options = asConfigOptions(session.snapshot.configOptions);
@@ -187,10 +190,10 @@ export function TeamChip({ sessionId, disabled }: { sessionId: string; disabled:
           setLeftward(Boolean(rect && rect.left + POP_WIDTH > window.innerWidth - 16));
           setOpen(!open);
         }}
-        title={t("Team: {summary}", { summary: teamSummary(team) })}
+        title={unset ? t("Work with a team in this session") : t("Team: {summary}", { summary: teamSummary(team) })}
         type="button"
       >
-        {t("team: {label}", { label })}
+        {unset ? t("Set team") : t("team: {label}", { label })}
         {running > 0 ? ` · ${t("{count} working", { count: running })}` : ""}
         <IconChevron open size={11} />
       </button>

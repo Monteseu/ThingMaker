@@ -585,6 +585,16 @@ mod tests {
     }
 
     #[test]
+    fn a_session_can_be_stored_for_every_provider() {
+        let storage = Storage::open_in_memory().unwrap();
+        let workspace = storage.workspace_upsert("/p", "/p", "w-1").unwrap();
+        for provider in Provider::ALL {
+            let stored = storage.session_upsert(&workspace.id, provider.as_str(), SessionOrigin::Desktop, provider).unwrap_or_else(|error| panic!("{provider:?}: {error}"));
+            assert_eq!(stored.provider, provider);
+        }
+    }
+
+    #[test]
     fn workspace_delete_removes_dependent_records_but_not_others() {
         let storage = Storage::open_in_memory().unwrap();
         let keep = storage.workspace_upsert("/tmp/keep", "/tmp/keep", "w-keep").unwrap();

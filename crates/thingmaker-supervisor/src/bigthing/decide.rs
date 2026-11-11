@@ -182,6 +182,11 @@ pub fn failover_decision(goal: &OdysseyRecord, journal_entries: &[JournalEntry],
     if !idle {
         return None;
     }
+    // A goal on a local model stays there: moving it would carry its work
+    // off the computer. And nothing moves onto Local by itself.
+    if current == Provider::Local {
+        return None;
+    }
     if let Some(since) = journal::last_move_at(journal_entries)
         && now - since < FAILOVER_COOLDOWN_MS
     {
@@ -205,7 +210,7 @@ pub fn failover_decision(goal: &OdysseyRecord, journal_entries: &[JournalEntry],
     let other = candidates
         .iter()
         .copied()
-        .filter(|provider| provider.can_orchestrate())
+        .filter(|provider| provider.can_orchestrate() && *provider != Provider::Local)
         .find(|provider| *provider != current && !usage_verdict(usage.get(provider)).is_exhausted())?;
     Some(Failover { to: other, reason: format!("{}'s account is spent ({reason}) and {}'s is not", current.label(), other.label()) })
 }
@@ -378,6 +383,10 @@ mod tests {
         accounts.remove(&Provider::Claude);
         assert!(failover_decision(&goal, std::slice::from_ref(&moved_row), Provider::Codex, &accounts, &all, true, true, FAILOVER_COOLDOWN_MS - 1).is_none(), "once an hour");
         assert!(failover_decision(&goal, &[moved_row], Provider::Codex, &accounts, &[Provider::Gemini], true, true, FAILOVER_COOLDOWN_MS).is_none(), "Gemini cannot lead");
+        assert!(failover_decision(&goal, &[], Provider::Local, &AccountUsage::new(), &all, true, true, 0).is_none(), "a local goal never leaves the computer");
+        let mut spent_only = AccountUsage::new();
+        spent_only.insert(Provider::Codex, usage(Some(window(100.0, Some(10))), None));
+        assert!(failover_decision(&goal, &[], Provider::Codex, &spent_only, &[Provider::Local], true, true, 0).is_none(), "nothing moves onto Local by itself");
         goal.orchestrator = Orchestrator::Claude;
         assert_eq!(failover_decision(&goal, &[], Provider::Codex, &AccountUsage::new(), &all, false, true, 0).unwrap().to, Provider::Claude, "a pinned goal moves onto its pin");
         assert!(failover_decision(&goal, &[], Provider::Claude, &accounts, &all, true, true, 0).is_none());

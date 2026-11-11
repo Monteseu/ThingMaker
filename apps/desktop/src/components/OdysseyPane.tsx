@@ -442,12 +442,13 @@ export const AGENT_LABEL: Record<Provider, string> = PROVIDER_LABELS;
  * needs and is not quite the same word as the agent: Claude Code spends the
  * Claude plan, Codex the ChatGPT one.
  */
-export const ACCOUNT_LABEL: Record<Provider, string> = { claude: "Claude", codex: "ChatGPT", gemini: "Google" };
+export const ACCOUNT_LABEL: Record<Provider, string> = { claude: "Claude", codex: "ChatGPT", gemini: "Google", local: "this computer" };
 
 const ACCOUNT_HINT: Record<Provider, string> = {
   claude: t("This run is on Claude Code, which spends the Claude subscription. Its own subagents spend the same account."),
   codex: t("This run is on Codex, which spends the ChatGPT subscription. Its own subagents spend the same account."),
   gemini: t("This run is on Gemini through Antigravity, which spends the Google account's Antigravity quota."),
+  local: t("This run is on a local model through Ollama: it is free, and its work stays on this computer."),
 };
 
 const ORCHESTRATOR_LABEL: Record<Orchestrator, string> = { claude: t("Claude only"), codex: t("Codex only"), either: t("Either account") };
@@ -1211,7 +1212,7 @@ function NewGoalForm({ sessionId, workspaceId, agentSessionId }: { sessionId: st
       });
       const created = useStore.getState().odyssey[sessionId];
       if (preset && created) {
-        if (preset.orchestrator.provider !== "gemini") await api.odysseyEditGoal(created.goal.id, { orchestrator: preset.orchestrator.provider }).catch(() => undefined);
+        if (preset.orchestrator.provider === "claude" || preset.orchestrator.provider === "codex") await api.odysseyEditGoal(created.goal.id, { orchestrator: preset.orchestrator.provider }).catch(() => undefined);
         await saveTeam(sessionId, preset.combo).catch(() => undefined);
       }
       // With a document attached the next thing to happen is the planning

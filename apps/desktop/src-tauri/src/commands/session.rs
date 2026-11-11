@@ -115,6 +115,7 @@ fn transcript_exists(state: &AppState, provider: Provider, root: &Path, session_
             thingmaker_supervisor::agents::codex::transcript_usage::find_rollout(&codex_home, session_id).is_some()
         }
         Provider::Gemini => thingmaker_supervisor::agents::gemini::launch::conversation_path(&home, session_id).is_file(),
+        Provider::Local => thingmaker_supervisor::agents::local::conversation_exists(&thingmaker_supervisor::agents::local::local_home(&state.data_dir), root, session_id),
     }
 }
 
@@ -186,7 +187,77 @@ pub(crate) fn build_launch(
             options.resume = resume;
             (LaunchTarget::executable(resolved.program), AgentLaunch::Gemini(options))
         }
+        Provider::Local => local_launch(state, root, record, model, effort, resume, reserved)?,
     })
+}
+
+/// The `node_modules` folder an adapter script lives in, so its package and
+/// the Claude Code binary it ships are granted together.
+fn adapter_package_root(script: &Path) -> Option<PathBuf> {
+    script.ancestors().find(|dir| dir.file_name().is_some_and(|name| name == "node_modules")).map(Path::to_path_buf).or_else(|| script.parent().map(Path::to_path_buf))
+}
+
+/// The agent's own program, whose folder joins PATH: for a sandboxed local
+/// agent that is Node, not the `sandbox-exec` that starts it.
+pub(crate) fn program_of(target: &LaunchTarget, launch: &AgentLaunch) -> PathBuf {
+    match launch {
+        AgentLaunch::Claude(options) if options.local.is_some() => options.node.clone(),
+        _ => target.executable.clone(),
+    }
+}
+
+/// A Local Models launch. A chat is this executable as its own small ACP
+/// agent; an agent is the Claude adapter pointed at Ollama, inside the
+/// sandbox that lets it reach only this computer. Both are Claude-style
+/// launches carrying a [`LocalTarget`].
+fn local_launch(
+    state: &AppState,
+    root: &Path,
+    record: &WorkspaceRecord,
+    model: Option<String>,
+    effort: Option<String>,
+    resume: Option<String>,
+    reserved: SessionId,
+) -> CommandResult<(LaunchTarget, AgentLaunch)> {
+    use thingmaker_supervisor::agents::local::{self, sandbox, LocalKind, LocalTarget};
+    let id = model
+        .or_else(local::first_installed)
+        .ok_or_else(|| DesktopError::not_ready("No local model is installed. Get one in Providers, under Local Models."))?;
+    let (kind, name) = local::parse_model(&id);
+    let name = name.to_string();
+    let home = local::local_home(&state.data_dir);
+    let window = local::DEFAULT_WINDOW;
+    match kind {
+        LocalKind::Chat => {
+            let exe = std::env::current_exe().map_err(|error| DesktopError::io(format!("could not find ThingMaker's own program: {error}")))?;
+            let mut options = ClaudeLaunchOptions::new(root, exe.clone(), vec![local::chat_agent::CHAT_ARG.to_string()]);
+            options.reserved = reserved;
+            options.effort = effort;
+            options.permission_mode = permission_for(record);
+            options.resume = resume;
+            options.local = Some(LocalTarget { kind, model: name.clone(), served: name, window, home });
+            Ok((LaunchTarget::executable(exe), AgentLaunch::Claude(options)))
+        }
+        LocalKind::Agent => {
+            let adapter = state.resolve_provider(Provider::Claude).map_err(|error| DesktopError::not_ready(format!("A local agent runs Claude Code's adapter, which is missing: {}", error.message)))?;
+            // Ollama loads a plain model with a 4,096-token window, too small
+            // for an agent's instructions; the copy carries a bigger one.
+            let served = local::prepare_agent_model(&name, window).map_err(|error| DesktopError::not_ready(format!("Ollama could not prepare {name}: {error}")))?;
+            // On Windows the AppContainer sees only what it is granted.
+            let programs: Vec<PathBuf> = std::iter::once(adapter.program.parent().map(Path::to_path_buf))
+                .chain(adapter.prefix_args.first().map(|script| adapter_package_root(Path::new(script))))
+                .flatten()
+                .collect();
+            sandbox::prepare(root, &home, &programs).map_err(DesktopError::unsupported)?;
+            let (program, prefix) = sandbox::wrap(&adapter.program, &[]).map_err(DesktopError::unsupported)?;
+            let mut options = ClaudeLaunchOptions::new(root, adapter.program.clone(), adapter.prefix_args.clone());
+            options.reserved = reserved;
+            options.permission_mode = permission_for(record);
+            options.resume = resume;
+            options.local = Some(LocalTarget { kind, model: name, served, window, home });
+            Ok((LaunchTarget { executable: program, prefix_args: prefix }, AgentLaunch::Claude(options)))
+        }
+    }
 }
 
 /// The documented environment plus the user's runtime variables.
@@ -271,7 +342,7 @@ pub async fn session_open(request: OpenRequest, state: State<'_, AppState>) -> C
             request.model.clone().or_else(|| read_setting("claudeOrchestratorModel")).or_else(|| Some(CLAUDE_ORCHESTRATOR_MODEL.to_string())),
             request.reasoning_effort.clone().or_else(|| read_setting("claudeOrchestratorEffort")).or_else(|| Some(CLAUDE_ORCHESTRATOR_EFFORT.to_string())),
         ),
-        Provider::Codex | Provider::Gemini => (request.model.clone(), request.reasoning_effort.clone()),
+        Provider::Codex | Provider::Gemini | Provider::Local => (request.model.clone(), request.reasoning_effort.clone()),
     };
     let resume = match &request.mode {
         OpenRequestMode::Resume { session_id } => Some(session_id.clone()),
@@ -280,7 +351,7 @@ pub async fn session_open(request: OpenRequest, state: State<'_, AppState>) -> C
     let opened_model = model.clone();
     let (target, mut launch) = build_launch(&state, &record, provider, model, effort, resume, session_id.clone())?;
     let generation = 1;
-    let program = target.executable.clone();
+    let program = program_of(&target, &launch);
     let mut config = SessionActorConfig::new(target, launch.clone());
     config.environment = launch_environment(&state).with_program_dir(&program);
     config.attachment_generation = generation;
@@ -1030,6 +1101,9 @@ pub fn session_token_usage(request: TokenUsageRequest, state: State<'_, AppState
         // `agy` keeps its conversation in its own database; usage arrives on
         // the session's stream instead.
         Provider::Gemini => Err(DesktopError::unsupported("Antigravity reports token usage on the session's stream, not in a transcript the desktop reads")),
+        // Free, so there is nothing to count against; each reply carries its
+        // own totals.
+        Provider::Local => Err(DesktopError::unsupported("Local Models are free; their usage is not tracked")),
     }
 }
 

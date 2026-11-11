@@ -21,6 +21,8 @@ import {
   type UltraReview,
   type UrDecision,
   type UrPullRequest,
+  type LocalPullEvent,
+  type LocalStatus,
   type UrSeatRecord,
   type UrStartRequest,
   type NestedReport,
@@ -397,6 +399,16 @@ export const api = {
   },
   providerLoginCancel: (runId: string) => call<boolean>(COMMANDS.providerLoginCancel, { runId }),
   providerModels: (provider: Provider) => call<ProviderModel[]>(COMMANDS.providerModels, { provider }),
+  localStatus: () => call<LocalStatus>(COMMANDS.localStatus),
+  localStart: () => call<string>(COMMANDS.localStart),
+  localPull: (name: string, onEvent: (event: LocalPullEvent) => void) => {
+    const channel = new Channel<LocalPullEvent>();
+    channel.onmessage = onEvent;
+    return call<void>(COMMANDS.localPull, { name, onEvent: channel });
+  },
+  localPullCancel: (name: string) => call<boolean>(COMMANDS.localPullCancel, { name }),
+  localDelete: (name: string) => call<void>(COMMANDS.localDelete, { name }),
+  localAllowLoopback: () => call<boolean>(COMMANDS.localAllowLoopback),
   providerVersions: (askLatest: boolean) => call<ProviderVersion[]>(COMMANDS.providerVersions, { askLatest }),
   providerUpdate: (provider: Provider) => call<ProviderUpdateResult>(COMMANDS.providerUpdate, { provider }),
   appUpdateCheck: () => call<UpdateCheck>(COMMANDS.appUpdateCheck),

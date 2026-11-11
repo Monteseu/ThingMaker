@@ -51,7 +51,8 @@ import type {
   ProviderVersion,
   TurnPhase,
 } from "@thingmaker/contracts";
-import { EMPTY_COMBO, JOB_EVENT, ULTRA_REVIEW_EVENT, type UltraReview, type UrDecision, type UrStartRequest, SESSION_TITLE_EVENT, type SessionTitleChange, ODYSSEY_STATE_NOTE, PROVIDERS, PROVIDER_LABELS, BIGTHING_EVENT, asConfigOptions, isEffortOption, type Combo, type JobView, type ProviderModel, type BigThingEvent, type BigThingRuntime, type NestedReport, type TeamPreset, type WorkerSlot } from "@thingmaker/contracts";
+import { EMPTY_COMBO, JOB_EVENT, ULTRA_REVIEW_EVENT, type UltraReview, type UrDecision, type UrStartRequest, SESSION_TITLE_EVENT, type SessionTitleChange, ODYSSEY_STATE_NOTE, PROVIDERS, PROVIDER_LABELS, BIGTHING_EVENT, asConfigOptions, isEffortOption, isRetiredModel, parseLocalModel, type Combo, type JobView, type ProviderModel, type BigThingEvent, type BigThingRuntime, type NestedReport, type TeamPreset, type WorkerSlot } from "@thingmaker/contracts";
+import { isLocalChat } from "./localModels";
 import { HANDOFF_SPLIT, handoffBrief, hasConversation, helperPresetFrom, readHelperPresets, readPresets, upsertHelperPreset, upsertJob, upsertPreset, withoutHandoff, type HelperPreset } from "./team";
 import { copiesItself, forkBranch, forkTitle, type ForkPoint } from "./fork";
 
@@ -376,7 +377,8 @@ type State = {
   saveTeam: (sessionId: string, combo: Combo) => Promise<void>;
   loadDefaultCombo: () => Promise<void>;
   saveDefaultCombo: (combo: Combo) => Promise<void>;
-  loadProviderModels: (provider: Provider) => Promise<ProviderModel[]>;
+  /** A provider's models, asked once; `fresh` asks again (Local Models change when a model is downloaded). */
+  loadProviderModels: (provider: Provider, fresh?: boolean) => Promise<ProviderModel[]>;
   noteJob: (job: JobView) => void;
   cancelJob: (sessionId: string, jobId: string) => Promise<void>;
   /** Ends a waiting job's wait now. */
@@ -883,6 +885,17 @@ async function attachLive(get: Get, set: Set, handle: SessionHandle, workspaceId
   }
 }
 
+/**
+ * Whether a pending choice moves the conversation to a new session: another
+ * provider, or a local chat becoming a local agent (or back), which run as
+ * different programs.
+ */
+function switchesSession(snapshot: { provider?: Provider; capabilities?: { agentName?: string } | null } | undefined, pending: PendingProvider): boolean {
+  if (!snapshot || pending.provider !== snapshot.provider) return true;
+  if (pending.provider !== "local" || !pending.model) return false;
+  return parseLocalModel(pending.model).kind !== (isLocalChat(snapshot) ? "chat" : "agent");
+}
+
 export const useStore = create<State>((set, get) => ({
   providers: null,
   providerVersions: null,
@@ -982,7 +995,8 @@ export const useStore = create<State>((set, get) => ({
       // Both accounts' usage for the sidebar, now and every five minutes: the
       // sessions report it too, but only while one is running.
       const readUsage = () => {
-        for (const provider of PROVIDERS) void get().refreshUsage(provider);
+        // Local Models are free: there is no usage to read.
+        for (const provider of PROVIDERS) if (provider !== "local") void get().refreshUsage(provider);
       };
       readUsage();
       setInterval(readUsage, 5 * 60_000);
@@ -2195,10 +2209,8 @@ export const useStore = create<State>((set, get) => ({
     // for a session it has never heard of.
     const recorded = mode.mode === "resume" ? (get().records[workspaceId] ?? []).find((record) => record.agentSessionId === mode.session_id)?.provider : undefined;
     const defaults = get().sessionDefaults;
-    // A new session with no provider asked for starts from the default
-    // preset, when there is one: its orchestrator and its workers.
-    const preset = mode.mode === "new" && !provider ? get().teamPresets.find((entry) => entry.id === get().defaultPresetId) : undefined;
-    if (preset) return get().openSessionWithPreset(workspaceId, preset);
+    // A new session starts with no team, on the default model: a team is
+    // chosen from the composer's "Set team", or a preset is opened directly.
     // A session the app is already running — a worker a delegation opened —
     // is shown, not resumed: a second process on the same session is refused
     // by the agent, and would compete with the first one if it were not.
@@ -2293,11 +2305,11 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  async loadProviderModels(provider) {
+  async loadProviderModels(provider, fresh = false) {
     const known = get().providerModels[provider];
-    if (known) return known;
+    if (known && !fresh) return known;
     try {
-      const models = await api.providerModels(provider);
+      const models = (await api.providerModels(provider)).filter((model) => !isRetiredModel(provider, model));
       set({ providerModels: { ...get().providerModels, [provider]: models } });
       return models;
     } catch {
@@ -2576,8 +2588,7 @@ export const useStore = create<State>((set, get) => ({
 
   setPendingProvider(sessionId, pending) {
     const { [sessionId]: _previous, ...rest } = get().pendingProvider;
-    const own = get().sessions[sessionId]?.snapshot.provider;
-    set({ pendingProvider: pending && pending.provider !== own ? { ...rest, [sessionId]: pending } : rest });
+    set({ pendingProvider: pending && switchesSession(get().sessions[sessionId]?.snapshot, pending) ? { ...rest, [sessionId]: pending } : rest });
   },
 
   async loadContinuations() {
@@ -2604,6 +2615,11 @@ export const useStore = create<State>((set, get) => ({
     // the chosen provider with the person's message.
     const fresh = !hasConversation(session.projection.cards);
     const provider = PROVIDER_LABELS[pending.provider];
+    // The model the chip shows when none was picked: the provider's default,
+    // else its first. Local Models has no account default to fall back on.
+    const catalog = get().providerModels[pending.provider] ?? [];
+    const shownModel = pending.model ?? (catalog.find((entry) => entry.isDefault) ?? catalog[0])?.id;
+    const model = pending.provider === "local" ? shownModel : pending.model;
     set({ busy: fresh ? t("Starting with {provider}", { provider }) : t("Continuing with {provider}", { provider }), error: null });
     try {
       const opened = await api.sessionOpen({
@@ -2611,7 +2627,7 @@ export const useStore = create<State>((set, get) => ({
         mode: { mode: "new" },
         provider: pending.provider,
         ...launchDefaults(get().sessionDefaults, pending.provider),
-        ...(pending.model ? { model: pending.model } : {}),
+        ...(model ? { model } : {}),
         ...(pending.effort ? { reasoningEffort: pending.effort } : {}),
         ...(team ? { combo: team } : {}),
       });
@@ -2665,7 +2681,10 @@ export const useStore = create<State>((set, get) => ({
     try {
       const [presets, defaultId] = await Promise.all([api.prefGet<unknown>(TEAM_PRESETS_KEY), api.prefGet<string>(DEFAULT_PRESET_KEY)]);
       const list = readPresets(presets);
-      set({ teamPresets: list, defaultPresetId: list.some((preset) => preset.id === defaultId) ? (defaultId as string) : null });
+      set({ teamPresets: list, defaultPresetId: null });
+      // New sessions no longer start on a team: a default left from before
+      // is cleared, with the host's default workers it implied.
+      if (typeof defaultId === "string" && defaultId) void get().setDefaultPreset(null);
     } catch {
       // No presets yet.
     }
@@ -2811,7 +2830,7 @@ export const useStore = create<State>((set, get) => ({
 
   async send(sessionId) {
     const pending = get().pendingProvider[sessionId];
-    if (pending && pending.provider !== get().sessions[sessionId]?.snapshot.provider) return get().continueOnProvider(sessionId);
+    if (pending && switchesSession(get().sessions[sessionId]?.snapshot, pending)) return get().continueOnProvider(sessionId);
     const session = get().sessions[sessionId];
     const draft = get().drafts[sessionId] ?? "";
     const attachments = get().attachments[sessionId] ?? [];
