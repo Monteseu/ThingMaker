@@ -157,6 +157,15 @@ impl Connection {
                     });
                     return;
                 }
+                // The original of a picture this phone got as a thumbnail.
+                if command == "remote_image" {
+                    let picture = args.get("id").and_then(Value::as_str).and_then(|picture| self.app.state::<RemoteState>().images.original(picture));
+                    self.send(match picture {
+                        Some(value) => json!({ "t": "result", "id": id, "ok": true, "value": value }),
+                        None => json!({ "t": "result", "id": id, "ok": false, "error": { "code": "NOT_FOUND", "message": "That picture is no longer kept on the computer; reopen the session to see it again.", "retry": "never" } }),
+                    });
+                    return;
+                }
                 if command == "session_subscribe" {
                     let result = self.subscribe(&args);
                     self.send(match result {
@@ -175,8 +184,12 @@ impl Connection {
                 let app = self.app.clone();
                 let out = self.out.clone();
                 let in_flight = self.in_flight.clone();
+                let images = self.app.state::<RemoteState>().images.clone();
                 tokio::spawn(async move {
-                    let reply = dispatch::dispatch(&app, &command, args).await;
+                    let reply = match dispatch::dispatch(&app, &command, args).await {
+                        Ok(value) => Ok(lighten(&images, value).await),
+                        Err(error) => Err(error),
+                    };
                     in_flight.fetch_sub(1, Ordering::Relaxed);
                     let frame = match reply {
                         Ok(value) => json!({ "t": "result", "id": id, "ok": true, "value": value }),
@@ -209,9 +222,11 @@ impl Connection {
         let actor = crate::commands::session::actor_for(&state, &handle).map_err(|error| serde_json::to_value(error).unwrap_or(Value::Null))?;
         let mut subscription = actor.subscribe();
         let out = self.out.clone();
+        let images = self.app.state::<RemoteState>().images.clone();
         let task = tokio::spawn(async move {
             while let Some(event) = subscription.recv().await {
-                let frame = json!({ "t": "channel", "cid": cid, "data": &*event });
+                let data = lighten(&images, serde_json::to_value(&*event).unwrap_or(Value::Null)).await;
+                let frame = json!({ "t": "channel", "cid": cid, "data": data });
                 if !out.send(frame.to_string()) {
                     break;
                 }
@@ -230,6 +245,18 @@ impl Drop for Connection {
             task.abort();
         }
     }
+}
+
+/// What a phone is sent, with its big pictures as thumbnails; the decoding
+/// runs off the async threads.
+async fn lighten(images: &Arc<super::images::ImageCache>, mut value: Value) -> Value {
+    let images = images.clone();
+    tokio::task::spawn_blocking(move || {
+        images.lighten(&mut value);
+        value
+    })
+    .await
+    .unwrap_or(Value::Null)
 }
 
 /// A phone's WebSocket on the local listener: its frames, through the same

@@ -13,7 +13,7 @@ export function ToolPayloads({ patch, workspaceId }: { patch: ToolPatch; workspa
       .map(([label, value]) => {
         const { detail, images } = toolImages(value);
         return { label: label as string, detail, images: images.filter((image) => {
-          const key = image.data ? imageSource(image.data, image.mimeType) : image.uri;
+          const key = image.full?.id ?? (image.data ? imageSource(image.data, image.mimeType) : image.uri);
           if (!key) return true;
           if (seen.has(key)) return false;
           seen.add(key);
@@ -26,7 +26,7 @@ export function ToolPayloads({ patch, workspaceId }: { patch: ToolPatch; workspa
       <h4>{label}</h4>
       <pre className="text">{JSON.stringify(detail, null, 2)}</pre>
       <div className="tool-images">{images.map((image, index) => (
-        <BlockImage data={image.data} key={index} mimeType={image.mimeType} uri={image.uri} workspaceId={workspaceId} />
+        <BlockImage data={image.data} full={image.full} key={index} mimeType={image.mimeType} uri={image.uri} workspaceId={workspaceId} />
       ))}</div>
     </section>
   ))}</>;

@@ -1,6 +1,21 @@
 import { t } from "./i18n";
 
-export type ToolImage = { data?: string; mimeType?: string; uri?: string };
+/**
+ * What the computer puts on a picture it sent the phone as a thumbnail: the
+ * id to ask for the original by, and the original's size and type.
+ */
+export type RemoteFull = { id: string; bytes?: number; mimeType?: string };
+
+/** Reads the `thingmakerFull` mark off a block, if it is a well-formed one. */
+export function remoteFull(value: unknown): RemoteFull | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const full = value as Record<string, unknown>;
+  if (typeof full.id !== "string" || !full.id) return undefined;
+  return { id: full.id, ...(typeof full.bytes === "number" ? { bytes: full.bytes } : {}), ...(typeof full.mimeType === "string" ? { mimeType: full.mimeType } : {}) };
+}
+
+/** `full`: on the phone, the picture is a thumbnail and this fetches the original. */
+export type ToolImage = { data?: string; mimeType?: string; uri?: string; full?: RemoteFull };
 
 /** Separate image bytes from diagnostic text, including nested ACP/MCP results. */
 export function toolImages(value: unknown): { detail: unknown; images: ToolImage[] } {
@@ -25,7 +40,9 @@ export function toolImages(value: unknown): { detail: unknown; images: ToolImage
     const uri = record.uri ?? resource?.uri;
     const url = typeof record.image_url === "string" ? record.image_url : (record.image_url as { url?: unknown } | undefined)?.url;
     if (record.type === "image" || record.type === "image_url" || (record.type === "resource" && typeof mime === "string" && mime.startsWith("image/"))) {
+      const full = remoteFull(record.thingmakerFull);
       images.push({
+        ...(full ? { full } : {}),
         ...(typeof data === "string" ? { data } : typeof url === "string" && /^data:image\//i.test(url) ? { data: url } : {}),
         ...(typeof mime === "string" ? { mimeType: mime } : {}),
         ...(typeof uri === "string" ? { uri } : {}),

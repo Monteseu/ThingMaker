@@ -3207,6 +3207,37 @@ body.resizing-sidebar * {
   background: #0f0f0f;
 }
 
+/* A picture the phone got as a thumbnail; a tap fetches the original. */
+.remote-thumb {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.image-lightbox-scroll {
+  overflow: auto;
+  max-height: calc(92vh - 80px);
+  min-height: 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.image-lightbox-scroll img {
+  cursor: zoom-in;
+}
+
+/* Actual size: the picture at its own pixels, panned by scrolling. */
+.image-lightbox-actual .image-lightbox-scroll img {
+  max-width: none;
+  max-height: none;
+  cursor: zoom-out;
+}
+
+.image-lightbox-preview {
+  filter: blur(2px);
+  opacity: 0.6;
+}
+
 .images-pane {
   display: flex;
   flex-direction: column;

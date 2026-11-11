@@ -444,6 +444,8 @@ export const api = {
   remoteClearAccess: () => call<RemoteStatus>(COMMANDS.remoteClearAccess),
   /** From the phone, the Mac sends it to that phone; from the Mac, to one phone or every connected one. */
   remoteSendApk: (path: string, device?: string) => call<ApkOffer>(COMMANDS.remoteSendApk, { path, device: device ?? null }),
+  /** Phone only: the original of a picture the computer sent as a thumbnail. */
+  remoteImage: (id: string) => call<{ mimeType: string; data: string }>(COMMANDS.remoteImage, { id }),
   settingsGet: () => call<NotificationSettings>(COMMANDS.settingsGet),
   keepAwakeStatus: () => call<KeepAwakeStatus>(COMMANDS.keepAwakeStatus),
   keepAwakeRefresh: () => call<KeepAwakeStatus>(COMMANDS.keepAwakeRefresh),
