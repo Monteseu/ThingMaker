@@ -182,6 +182,14 @@ export const ORCHESTRATOR_PROVIDERS: readonly Provider[] = ["claude", "codex", "
  * is Claude Code's agent with the local model as its brain, sandboxed so it
  * reaches only this computer. A bare name is a chat.
  */
+/**
+ * One of a provider's accounts (Claude Code, Codex). The default is the
+ * person's own folder; an added one has a folder of its own that shares
+ * everything but the sign-in. The active one is used by new sessions.
+ */
+export type AccountView = { id: string; provider: Provider; label: string; isDefault: boolean; active: boolean; auth?: ProviderAuthStatus };
+export const ACCOUNT_PROVIDERS: readonly Provider[] = ["claude", "codex"] as const;
+
 export type LocalKind = "chat" | "agent";
 
 /**
@@ -1731,6 +1739,11 @@ export const COMMANDS = {
   localDelete: "local_delete",
   localAllowLoopback: "local_allow_loopback",
   localSetWindow: "local_set_window",
+  accountsList: "accounts_list",
+  accountAdd: "account_add",
+  accountRename: "account_rename",
+  accountRemove: "account_remove",
+  accountSetActive: "account_set_active",
   ultraReviewMarkdown: "ultra_review_markdown",
   ultraReviewPost: "ultra_review_post",
   ultraReviewTrackRecord: "ultra_review_track_record",

@@ -80,7 +80,7 @@ describe("the Providers page", () => {
 
   it("runs the provider's own update and says what changed for open sessions", async () => {
     seed([claude(true)], { claude: behind });
-    invoke.mockResolvedValueOnce({ output: "changed 3 packages", version: { ...behind, installed: "0.89.1", updateAvailable: false } });
+    invoke.mockImplementation(async (command: string) => (command === "provider_update" ? { output: "changed 3 packages", version: { ...behind, installed: "0.89.1", updateAvailable: false } } : undefined));
     render(<SignInPanel />);
     fireEvent.click(screen.getByRole("button", { name: "Update to 0.89.1" }));
     await vi.waitFor(() => expect(screen.getByText(/Updated from 0\.84\.0 to 0\.89\.1/)).toBeTruthy());
@@ -99,7 +99,10 @@ describe("the Providers page", () => {
 
   it("shows why an update failed", async () => {
     seed([claude(true)], { claude: behind });
-    invoke.mockRejectedValueOnce({ code: "IO", message: "npm ERR! network", retry: "user_action" });
+    invoke.mockImplementation(async (command: string) => {
+      if (command === "provider_update") throw { code: "IO", message: "npm ERR! network", retry: "user_action" };
+      return undefined;
+    });
     render(<SignInPanel />);
     fireEvent.click(screen.getByRole("button", { name: "Update to 0.89.1" }));
     await vi.waitFor(() => expect(screen.getByText("npm ERR! network")).toBeTruthy());

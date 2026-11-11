@@ -46,10 +46,14 @@ fn field<'a>(value: &'a serde_json::Value, keys: &[&str]) -> Option<&'a serde_js
 }
 
 /// Reads Claude Code's own auth status. Read-only: it asks and reports.
-pub fn read_status(executable: &PathBuf, args: &[String], timeout: Duration) -> ProviderAuthStatus {
+pub fn read_status(executable: &PathBuf, args: &[String], config_dir: Option<&std::path::Path>, timeout: Duration) -> ProviderAuthStatus {
     let problem = |text: String| ProviderAuthStatus::problem(Provider::Claude, text);
     let mut command = Command::new(executable);
     command.args(status_args(args)).stdin(std::process::Stdio::null());
+    // An account other than the person's own is its own settings folder.
+    if let Some(dir) = config_dir {
+        command.env("CLAUDE_CONFIG_DIR", dir);
+    }
     // The adapter prints JSON on stdout and Node warnings on stderr; only the
     // former is parsed, and a non-zero exit is reported rather than guessed at.
     let output = match run_bounded(command, timeout) {

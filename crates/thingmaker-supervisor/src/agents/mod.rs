@@ -13,6 +13,7 @@
 //! else; one that speaks its own protocol gets a bridge that translates it
 //! into ACP inside the supervisor, the way `codex` does.
 
+pub mod accounts;
 pub mod auth;
 pub mod claude;
 pub mod codex;
@@ -234,7 +235,7 @@ impl AgentLaunch {
         match self {
             Self::Claude(options) => match &options.local {
                 Some(local) => local.environment(),
-                None => Vec::new(),
+                None => options.config_dir.iter().map(|dir| ("CLAUDE_CONFIG_DIR".to_string(), dir.to_string_lossy().into_owned())).collect(),
             },
             Self::Gemini(_) => Vec::new(),
             Self::Codex(options) => options

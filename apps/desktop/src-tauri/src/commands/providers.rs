@@ -5,7 +5,7 @@
 //! runs it as a separate process, never reads or stores a token, and only
 //! surfaces a sign-in URL for the user to click (SEC-06).
 
-use std::{path::PathBuf, time::Duration};
+use std::{path::{Path, PathBuf}, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use tauri::{State, ipc::Channel};
@@ -40,10 +40,12 @@ pub struct ProviderInfo {
     pub auth: Option<ProviderAuthStatus>,
 }
 
-fn auth_status(resolved: &ResolvedProvider) -> ProviderAuthStatus {
+/// A provider's sign-in, for the account whose folder is `folder` (the
+/// person's own when `None`).
+pub(crate) fn auth_status(resolved: &ResolvedProvider, folder: Option<&Path>) -> ProviderAuthStatus {
     match resolved.provider {
-        Provider::Claude => claude::auth::read_status(&resolved.program, &resolved.prefix_args, Duration::from_secs(30)),
-        Provider::Codex => codex::probe::read_status(&resolved.program, None, Duration::from_secs(30)),
+        Provider::Claude => claude::auth::read_status(&resolved.program, &resolved.prefix_args, folder, Duration::from_secs(30)),
+        Provider::Codex => codex::probe::read_status(&resolved.program, folder, Duration::from_secs(30)),
         Provider::Gemini => gemini::probe::read_status(&resolved.program, Duration::from_secs(30)),
         // "Signed in" for Local Models means Ollama answers: there is no
         // account. Its version stands where an account would.
@@ -54,21 +56,31 @@ fn auth_status(resolved: &ResolvedProvider) -> ProviderAuthStatus {
     }
 }
 
+/// Claude Code's environment for an account: its folder when it is not the
+/// person's own.
+fn claude_environment(folder: Option<&Path>) -> EnvironmentProfile {
+    let profile = EnvironmentProfile::trusted_local();
+    match folder {
+        Some(dir) => profile.with_set("CLAUDE_CONFIG_DIR", dir.to_string_lossy()),
+        None => profile,
+    }
+}
+
 /// Every provider this build knows, with its program and sign-in state.
 /// Asking can take a few seconds per provider (each answers through its own
 /// CLI), so this runs off the command thread.
 #[tauri::command]
 pub async fn providers_status(state: State<'_, AppState>) -> CommandResult<Vec<ProviderInfo>> {
-    let resolved: Vec<(Provider, Result<ResolvedProvider, DesktopError>)> =
-        Provider::ALL.iter().map(|provider| (*provider, state.resolve_provider(*provider))).collect();
+    let resolved: Vec<(Provider, Result<ResolvedProvider, DesktopError>, Option<PathBuf>)> =
+        Provider::ALL.iter().map(|provider| (*provider, state.resolve_provider(*provider), state.account_folder(*provider, None))).collect();
     tauri::async_runtime::spawn_blocking(move || {
         resolved
             .into_iter()
-            .map(|(provider, resolved)| match resolved {
+            .map(|(provider, resolved, folder)| match resolved {
                 Ok(resolved) => ProviderInfo {
                     provider,
                     label: provider.label(),
-                    auth: Some(auth_status(&resolved)),
+                    auth: Some(auth_status(&resolved, folder.as_deref())),
                     resolved: Some(resolved),
                     problem: None,
                 },
@@ -174,14 +186,16 @@ pub struct LoginStartResponse {
 /// against a Claude *subscription* rather than metered API billing — this
 /// desktop runs on subscriptions only.
 #[tauri::command]
-pub fn provider_login_start(provider: Provider, on_event: Channel<LoginEvent>, state: State<'_, AppState>) -> CommandResult<LoginStartResponse> {
+pub fn provider_login_start(provider: Provider, on_event: Channel<LoginEvent>, account: Option<String>, state: State<'_, AppState>) -> CommandResult<LoginStartResponse> {
     let resolved = state.resolve_provider(provider)?;
+    // Signing in to an account is signing in inside its folder.
+    let folder = state.account_folder(provider, account.as_deref());
     // Both sign in with the subscription: Claude Code's `--claudeai`, and
     // `codex login`, which is ChatGPT sign-in unless an API key is given.
     // `agy` has no headless sign-in; it shares the Antigravity app's.
     let (args, environment) = match provider {
-        Provider::Claude => (claude::auth::login_args(&resolved.prefix_args, true), EnvironmentProfile::trusted_local()),
-        Provider::Codex => (codex::probe::login_args(), codex::probe::environment(None).with_program_dir(&resolved.program)),
+        Provider::Claude => (claude::auth::login_args(&resolved.prefix_args, true), claude_environment(folder.as_deref())),
+        Provider::Codex => (codex::probe::login_args(), codex::probe::environment(folder.as_deref()).with_program_dir(&resolved.program)),
         Provider::Gemini => return Err(DesktopError::unsupported(gemini::probe::SIGN_IN_HINT)),
         Provider::Local => return Err(DesktopError::unsupported("Local Models need no sign-in: start Ollama instead.")),
     };
@@ -256,13 +270,17 @@ pub async fn provider_quota(provider: Provider, state: State<'_, AppState>) -> C
             let script = resolved.prefix_args.first().map(std::path::PathBuf::from).unwrap_or_default();
             let binary = claude::usage_probe::locate_claude_binary(&script, &home)
                 .ok_or_else(|| DesktopError::not_ready("Claude Code's own program was not found beside the adapter"))?;
-            tauri::async_runtime::spawn_blocking(move || claude::usage_probe::read_quota(&binary, Duration::from_secs(30)).map_err(DesktopError::io))
+            let folder = state.account_folder(Provider::Claude, None);
+            tauri::async_runtime::spawn_blocking(move || claude::usage_probe::read_quota(&binary, folder.as_deref(), Duration::from_secs(30)).map_err(DesktopError::io))
                 .await
                 .map_err(|error| DesktopError::io(error.to_string()))??
         }
-        Provider::Codex => tauri::async_runtime::spawn_blocking(move || codex::probe::read_quota(&resolved.program, None, Duration::from_secs(30)).map_err(DesktopError::io))
-            .await
-            .map_err(|error| DesktopError::io(error.to_string()))??,
+        Provider::Codex => {
+            let folder = state.account_folder(Provider::Codex, None);
+            tauri::async_runtime::spawn_blocking(move || codex::probe::read_quota(&resolved.program, folder.as_deref(), Duration::from_secs(30)).map_err(DesktopError::io))
+                .await
+                .map_err(|error| DesktopError::io(error.to_string()))??
+        }
         // `agy` reports usage per turn but has no quota question.
         Provider::Gemini => return Err(DesktopError::unsupported("Antigravity does not report its quota; a spent account shows as a refused turn.")),
         Provider::Local => return Err(DesktopError::unsupported("Local Models are free and have no quota.")),
@@ -278,11 +296,12 @@ pub async fn provider_quota(provider: Provider, state: State<'_, AppState>) -> C
 /// be a different account. The provider's own command does it; nothing here
 /// touches a credential file.
 #[tauri::command]
-pub async fn provider_logout(provider: Provider, state: State<'_, AppState>) -> CommandResult<()> {
+pub async fn provider_logout(provider: Provider, account: Option<String>, state: State<'_, AppState>) -> CommandResult<()> {
     let resolved = state.resolve_provider(provider)?;
+    let folder = state.account_folder(provider, account.as_deref());
     let (args, environment) = match provider {
-        Provider::Claude => (claude::auth::logout_args(&resolved.prefix_args), EnvironmentProfile::trusted_local()),
-        Provider::Codex => (codex::probe::logout_args(), codex::probe::environment(None).with_program_dir(&resolved.program)),
+        Provider::Claude => (claude::auth::logout_args(&resolved.prefix_args), claude_environment(folder.as_deref())),
+        Provider::Codex => (codex::probe::logout_args(), codex::probe::environment(folder.as_deref()).with_program_dir(&resolved.program)),
         Provider::Gemini => {
             return Err(DesktopError::unsupported("Antigravity signs in and out through its own app: switch the account there, or run `agy` in a terminal."));
         }

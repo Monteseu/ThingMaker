@@ -51,7 +51,7 @@ import type {
   ProviderVersion,
   TurnPhase,
 } from "@thingmaker/contracts";
-import { EMPTY_COMBO, JOB_EVENT, ULTRA_REVIEW_EVENT, type UltraReview, type UrDecision, type UrStartRequest, SESSION_TITLE_EVENT, type SessionTitleChange, ODYSSEY_STATE_NOTE, PROVIDERS, PROVIDER_LABELS, BIGTHING_EVENT, asConfigOptions, isEffortOption, isRetiredModel, parseLocalModel, type Combo, type JobView, type ProviderModel, type BigThingEvent, type BigThingRuntime, type NestedReport, type TeamPreset, type WorkerSlot } from "@thingmaker/contracts";
+import { EMPTY_COMBO, JOB_EVENT, ULTRA_REVIEW_EVENT, type UltraReview, type UrDecision, type UrStartRequest, SESSION_TITLE_EVENT, type SessionTitleChange, ODYSSEY_STATE_NOTE, PROVIDERS, PROVIDER_LABELS, BIGTHING_EVENT, asConfigOptions, ACCOUNT_PROVIDERS, isEffortOption, isRetiredModel, parseLocalModel, type AccountView, type Combo, type JobView, type ProviderModel, type BigThingEvent, type BigThingRuntime, type NestedReport, type TeamPreset, type WorkerSlot } from "@thingmaker/contracts";
 import { isLocalChat } from "./localModels";
 import { HANDOFF_SPLIT, handoffBrief, hasConversation, helperPresetFrom, readHelperPresets, readPresets, upsertHelperPreset, upsertJob, upsertPreset, withoutHandoff, type HelperPreset } from "./team";
 import { copiesItself, forkBranch, forkTitle, type ForkPoint } from "./fork";
@@ -171,6 +171,8 @@ export type LockedResume = { workspaceId: string; sessionId: string; error: Desk
 export type SignInRun = {
   runId: string | null;
   provider: Provider;
+  /** The account signing in, when it is not the active one. */
+  account?: string;
   lines: { stream: string; text: string }[];
   urls: string[];
   state: "starting" | "running" | "success" | "failed" | "cancelled" | "timed_out";
@@ -526,9 +528,22 @@ type State = {
   stop: (sessionId: string) => Promise<void>;
   refreshSnapshot: (sessionId: string) => Promise<void>;
   setConfigOption: (sessionId: string, configId: string, value: string) => Promise<void>;
-  startSignIn: (provider: Provider) => Promise<void>;
-  /** Signs a provider out and straight back in, so its sessions spend a different account. */
-  switchAccount: (provider: Provider) => Promise<void>;
+  /** Signs in to a provider: its active account, or `account`. */
+  startSignIn: (provider: Provider, account?: string) => Promise<void>;
+  /** Each provider's accounts (Claude Code, Codex), the default first. */
+  accounts: Partial<Record<Provider, AccountView[]>>;
+  loadAccounts: (provider: Provider) => Promise<void>;
+  /** Adds an account and starts its sign-in. */
+  addAccount: (provider: Provider, label: string) => Promise<void>;
+  renameAccount: (provider: Provider, id: string, label: string) => Promise<void>;
+  removeAccount: (provider: Provider, id: string) => Promise<void>;
+  /**
+   * Makes an account the active one: new sessions, status and usage use it.
+   * With `sessionId`, that session's conversation moves to it too, when it
+   * is on this provider and idle: it is stopped and resumed under the
+   * account, which shares its history.
+   */
+  setActiveAccount: (provider: Provider, id: string, sessionId?: string) => Promise<void>;
   cancelSignIn: () => Promise<void>;
   openUrl: (url: string) => Promise<void>;
   focusComposer: () => void;
@@ -934,6 +949,7 @@ export const useStore = create<State>((set, get) => ({
   helperPresets: [],
   defaultPresetId: null,
   signIn: null,
+  accounts: {},
   settings: null,
   closeRequest: null,
   error: null,
@@ -3073,8 +3089,8 @@ export const useStore = create<State>((set, get) => ({
    * Runs a provider's own sign-in: a separate process, no token through the
    * desktop, and a URL surfaced for the user to click.
    */
-  async startSignIn(provider) {
-    set({ signIn: { runId: null, provider, lines: [], urls: [], state: "starting" }, error: null });
+  async startSignIn(provider, account) {
+    set({ signIn: { runId: null, provider, ...(account ? { account } : {}), lines: [], urls: [], state: "starting" }, error: null });
     try {
       const { runId } = await api.providerLoginStart(provider, (event: LoginEvent) => {
         const run = get().signIn;
@@ -3092,11 +3108,14 @@ export const useStore = create<State>((set, get) => ({
             break;
           case "exited":
             next = { ...run, state: event.success ? "success" : event.cancelled ? "cancelled" : event.timedOut ? "timed_out" : "failed" };
-            if (event.success) void get().loadProviders();
+            if (event.success) {
+              void get().loadProviders();
+              if (ACCOUNT_PROVIDERS.includes(provider)) void get().loadAccounts(provider);
+            }
             break;
         }
         set({ signIn: next });
-      });
+      }, account);
       const run = get().signIn;
       if (run && run.provider === provider) set({ signIn: { ...run, runId } });
     } catch (error) {
@@ -3104,27 +3123,70 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  async switchAccount(provider) {
-    const info = get().providers?.find((entry) => entry.provider === provider);
-    const current = info?.auth?.account ? ` (${info.auth.account})` : "";
-    const confirmed = await api
-      .confirmDialog({
-        title: t("Switch {provider} account?", { provider: PROVIDER_LABELS[provider] }),
-        message: t("This signs {provider} out of the current account{account} and opens its own sign-in. Sessions already running keep the account they started with; new ones use the account you sign in with. It also changes the account for {provider} outside ThingMaker.", { provider: PROVIDER_LABELS[provider], account: current }),
-        okLabel: t("Sign out and sign in again"),
-        cancelLabel: t("Cancel"),
-        warning: true,
-      })
-      .catch(() => false);
-    if (!confirmed) return;
+  async loadAccounts(provider) {
     try {
-      await api.providerLogout(provider);
+      const list = await api.accountsList(provider);
+      set({ accounts: { ...get().accounts, [provider]: list } });
+    } catch {
+      // A provider that is not installed has no accounts to list.
+    }
+  },
+
+  async addAccount(provider, label) {
+    try {
+      const added = await api.accountAdd(provider, label);
+      await get().loadAccounts(provider);
+      await get().startSignIn(provider, added.id);
+    } catch (error) {
+      set({ error: asError(error) });
+    }
+  },
+
+  async renameAccount(provider, id, label) {
+    try {
+      await api.accountRename(provider, id, label);
+      await get().loadAccounts(provider);
+    } catch (error) {
+      set({ error: asError(error) });
+    }
+  },
+
+  async removeAccount(provider, id) {
+    try {
+      await api.accountRemove(provider, id);
+      await Promise.all([get().loadAccounts(provider), get().loadProviders()]);
+      void get().refreshUsage(provider);
+    } catch (error) {
+      set({ error: asError(error) });
+    }
+  },
+
+  async setActiveAccount(provider, id, sessionId) {
+    try {
+      await api.accountSetActive(provider, id);
     } catch (error) {
       set({ error: asError(error) });
       return;
     }
-    await get().loadProviders();
-    await get().startSignIn(provider);
+    // The usage bars and sign-in status follow the account.
+    set({ accounts: { ...get().accounts, [provider]: (get().accounts[provider] ?? []).map((account) => ({ ...account, active: account.id === id })) } });
+    void get().loadProviders();
+    void get().refreshUsage(provider);
+    const session = sessionId ? get().sessions[sessionId] : undefined;
+    const agentSessionId = session?.snapshot.agentSessionId;
+    const idle = session && session.projection.foreground !== "running" && session.projection.foreground !== "cancelling" && !session.inFlightRequestId;
+    if (!session || !agentSessionId || session.snapshot.provider !== provider || !idle || session.projection.process === "exited") return;
+    // The conversation moves with the account: the same session, resumed
+    // under it. History is shared between accounts, so nothing is lost.
+    set({ busy: t("Moving to the other account") });
+    try {
+      await api.sessionStop(session.handle).catch(() => undefined);
+      const { [session.handle.id]: _stopped, ...rest } = get().sessions;
+      set({ sessions: rest, sessionOrder: get().sessionOrder.filter((key) => key !== session.handle.id) });
+    } finally {
+      set({ busy: null });
+    }
+    await get().openSession(session.workspaceId, { mode: "resume", session_id: agentSessionId }, provider);
   },
 
   async cancelSignIn() {

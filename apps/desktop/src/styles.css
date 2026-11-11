@@ -7054,6 +7054,70 @@ html[data-platform="android"] { --traffic-lights: 8px; --titlebar: 52px; height:
   cursor: not-allowed;
 }
 
+/* A provider's accounts, under the providers. */
+.model-menu-accounts .model-menu-provider {
+  font-size: 11.5px;
+}
+
+/* The Providers panel's account list (Claude Code, Codex). */
+.provider-accounts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 0 8px 52px;
+}
+
+.provider-account {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.provider-account.on {
+  border-color: rgba(255, 107, 34, 0.45);
+}
+
+.provider-account-pick {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.provider-account-pick input[type="radio"] {
+  accent-color: var(--accent);
+}
+
+.provider-account-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.provider-account-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.provider-account-add {
+  align-self: flex-start;
+}
+
+.provider-account-form {
+  display: flex;
+  gap: 6px;
+}
+
+.provider-account-form .input {
+  flex: 1;
+  min-width: 0;
+}
+
 /* Local Models: Chat or Agent, under the providers. */
 .model-menu-local {
   display: flex;

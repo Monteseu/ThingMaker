@@ -22,6 +22,7 @@ import {
   type UrDecision,
   type UrPullRequest,
   type LocalPullEvent,
+  type AccountView,
   type LocalStatus,
   type UrSeatRecord,
   type UrStartRequest,
@@ -392,10 +393,10 @@ export const api = {
   providersStatus: () => call<ProviderInfo[]>(COMMANDS.providersStatus),
   providerSetLocation: (provider: Provider, location: ProviderLocation | null) =>
     call<void>(COMMANDS.providerSetLocation, { request: { provider, location } }),
-  providerLoginStart: (provider: Provider, onEvent: (event: LoginEvent) => void) => {
+  providerLoginStart: (provider: Provider, onEvent: (event: LoginEvent) => void, account?: string) => {
     const channel = new Channel<LoginEvent>();
     channel.onmessage = onEvent;
-    return call<{ runId: string }>(COMMANDS.providerLoginStart, { provider, onEvent: channel });
+    return call<{ runId: string }>(COMMANDS.providerLoginStart, { provider, onEvent: channel, account: account ?? null });
   },
   providerLoginCancel: (runId: string) => call<boolean>(COMMANDS.providerLoginCancel, { runId }),
   providerModels: (provider: Provider) => call<ProviderModel[]>(COMMANDS.providerModels, { provider }),
@@ -420,7 +421,12 @@ export const api = {
     return call<void>(COMMANDS.appUpdateInstall, { onProgress: channel });
   },
   providerQuota: (provider: Provider) => call<QuotaSnapshot>(COMMANDS.providerQuota, { provider }),
-  providerLogout: (provider: Provider) => call<void>(COMMANDS.providerLogout, { provider }),
+  providerLogout: (provider: Provider, account?: string) => call<void>(COMMANDS.providerLogout, { provider, account: account ?? null }),
+  accountsList: (provider: Provider) => call<AccountView[]>(COMMANDS.accountsList, { provider }),
+  accountAdd: (provider: Provider, label: string) => call<AccountView>(COMMANDS.accountAdd, { provider, label }),
+  accountRename: (provider: Provider, id: string, label: string) => call<void>(COMMANDS.accountRename, { provider, id, label }),
+  accountRemove: (provider: Provider, id: string) => call<void>(COMMANDS.accountRemove, { provider, id }),
+  accountSetActive: (provider: Provider, id: string) => call<void>(COMMANDS.accountSetActive, { provider, id }),
   delegationComboGet: (handle: SessionHandle) => call<Combo | null>(COMMANDS.delegationComboGet, { handle }),
   delegationComboSet: (handle: SessionHandle, combo: Combo) => call<Combo>(COMMANDS.delegationComboSet, { request: { handle, combo } }),
   delegationDefaultComboGet: () => call<Combo>(COMMANDS.delegationDefaultComboGet),

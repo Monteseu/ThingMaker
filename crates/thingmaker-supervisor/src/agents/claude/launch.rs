@@ -108,6 +108,9 @@ pub struct ClaudeLaunchOptions {
     /// A Local Models session (`Provider::Local`): a chat started as
     /// ThingMaker's own chat agent, or Claude Code pointed at Ollama.
     pub local: Option<crate::agents::local::LocalTarget>,
+    /// The account's settings folder (`CLAUDE_CONFIG_DIR`) when it is not
+    /// the person's own; see `agents::accounts`.
+    pub config_dir: Option<PathBuf>,
 }
 
 impl ClaudeLaunchOptions {
@@ -125,6 +128,7 @@ impl ClaudeLaunchOptions {
             disallowed_tools: Vec::new(),
             append_system_prompt: None,
             local: None,
+            config_dir: None,
         }
     }
 

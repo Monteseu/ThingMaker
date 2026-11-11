@@ -299,6 +299,40 @@ impl AppState {
     }
 }
 
+impl AppState {
+    /// The accounts added beside the person's own, for every provider.
+    pub fn accounts(&self) -> Vec<thingmaker_supervisor::agents::accounts::Account> {
+        use thingmaker_supervisor::{agents::accounts, storage::settings::GLOBAL_SCOPE};
+        accounts::read_accounts(self.with_storage(|s| s.setting_get::<serde_json::Value>(accounts::ACCOUNTS_SETTING, GLOBAL_SCOPE)).ok().flatten())
+    }
+
+    /// A provider's active account: an added one's id, or the default.
+    pub fn active_account(&self, provider: Provider) -> String {
+        use thingmaker_supervisor::agents::accounts;
+        let id = self.with_storage(|s| s.setting_get::<String>(accounts::ACTIVE_ACCOUNT_SETTING, provider.as_str())).ok().flatten();
+        id.filter(|id| self.accounts().iter().any(|account| account.provider == provider && &account.id == id)).unwrap_or_else(|| accounts::DEFAULT_ACCOUNT.to_string())
+    }
+
+    /// The settings folder of account `id` (the active one when `None`),
+    /// shared with the person's main folder again before it is used. `None`
+    /// for the default account, which is the person's own folder.
+    pub fn account_folder(&self, provider: Provider, id: Option<&str>) -> Option<PathBuf> {
+        use thingmaker_supervisor::agents::accounts;
+        let id = id.map(str::to_string).unwrap_or_else(|| self.active_account(provider));
+        if id == accounts::DEFAULT_ACCOUNT || !accounts::valid_id(&id) || !accounts::supports_accounts(provider) {
+            return None;
+        }
+        let home = self.home.clone()?;
+        let folder = accounts::account_folder(&self.data_dir, provider, &id);
+        if let Some(main) = accounts::main_folder(provider, &home)
+            && let Err(error) = accounts::share(provider, &main, &folder, &home)
+        {
+            tracing::warn!(%error, provider = provider.as_str(), "could not share the main settings with an account");
+        }
+        Some(folder)
+    }
+}
+
 /// `codex` on PATH, in the usual global install prefixes, or the one the
 /// ChatGPT and Codex apps ship. A desktop app launched from the Dock has no
 /// shell PATH, so the prefixes are searched explicitly.

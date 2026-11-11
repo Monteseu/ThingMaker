@@ -10,12 +10,13 @@
  * when you click them.
  */
 import { useEffect, useRef, useState } from "react";
-import { PROVIDER_LABELS, type Provider, type ProviderInfo, type ProviderModel } from "@thingmaker/contracts";
+import { ACCOUNT_PROVIDERS, PROVIDER_LABELS, type Provider, type ProviderInfo, type ProviderModel } from "@thingmaker/contracts";
 import { ProviderLogo } from "./ProviderLogo";
 import { api } from "../ipc";
 import { useStore, type SignInRun } from "../store";
 import { t } from "../i18n";
 import { LocalModelsCard } from "./LocalModelsCard";
+import { ProviderAccounts } from "./ProviderAccounts";
 import { UsageMeter } from "./UsageMeter";
 import { IconDots, IconRefresh } from "./icons";
 
@@ -79,7 +80,6 @@ function Meters({ provider }: { provider: Provider }) {
 function ProviderRow({ info }: { info: ProviderInfo }) {
   const signIn = useStore((s) => s.signIn);
   const startSignIn = useStore((s) => s.startSignIn);
-  const switchAccount = useStore((s) => s.switchAccount);
   const cancelSignIn = useStore((s) => s.cancelSignIn);
   const openUrl = useStore((s) => s.openUrl);
   const loadProviders = useStore((s) => s.loadProviders);
@@ -191,18 +191,6 @@ function ProviderRow({ info }: { info: ProviderInfo }) {
             </button>
             {menu && (
               <div className="provider-menu" role="menu">
-                {info.resolved && !elsewhere && auth?.loggedIn === true && (
-                  <button
-                    onClick={() => {
-                      setMenu(false);
-                      void switchAccount(provider);
-                    }}
-                    role="menuitem"
-                    type="button"
-                  >
-                    {t("Switch account")}
-                  </button>
-                )}
                 {info.resolved && (
                   <button onClick={() => void toggleModels()} role="menuitem" type="button">
                     {showModels ? t("Hide models") : t("Show models")}
@@ -247,6 +235,8 @@ function ProviderRow({ info }: { info: ProviderInfo }) {
           </span>
         </div>
       </div>
+
+      {info.resolved && ACCOUNT_PROVIDERS.includes(provider) && <ProviderAccounts provider={provider} />}
 
       {showDrawer && (
         <div className="provider-drawer">

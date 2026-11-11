@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
-import { asConfigOptions, isConfigOptionGroup, isEffortOption, isRetiredModel, parseLocalModel, PROVIDER_LABELS, PROVIDERS, type ConfigOptionChoice, type LocalKind, type Provider, type ProviderModel, type SessionConfigOption } from "@thingmaker/contracts";
+import { ACCOUNT_PROVIDERS, asConfigOptions, isConfigOptionGroup, isEffortOption, isRetiredModel, parseLocalModel, PROVIDER_LABELS, PROVIDERS, type ConfigOptionChoice, type LocalKind, type Provider, type ProviderModel, type SessionConfigOption } from "@thingmaker/contracts";
 import { t } from "../i18n";
 import { useStore } from "../store";
 import { isLocalModelId, localFacts, localKindLabel, localKindNote } from "../localModels";
 import { hasConversation, presetMatches } from "../team";
+import { accountName } from "./ProviderAccounts";
 import { IconBolt, IconCheck, IconChevron } from "./icons";
 
 function choices(option: SessionConfigOption): { group: string | null; choice: ConfigOptionChoice }[] {
@@ -98,6 +99,37 @@ function ProviderSwitch({ sessionId }: { sessionId: string }) {
   );
 }
 
+/** The provider's accounts, when it has more than one: picking one makes it
+ *  the active account, and moves this conversation to it when it is idle. */
+function AccountSwitch({ sessionId }: { sessionId: string }) {
+  const pending = useStore((s) => s.pendingProvider[sessionId]);
+  const own = useStore((s) => s.sessions[sessionId]?.snapshot.provider);
+  const provider = pending?.provider ?? own;
+  const accounts = useStore((s) => (provider ? s.accounts[provider] : undefined));
+  const loadAccounts = useStore((s) => s.loadAccounts);
+  const setActiveAccount = useStore((s) => s.setActiveAccount);
+  useEffect(() => {
+    if (provider && ACCOUNT_PROVIDERS.includes(provider)) void loadAccounts(provider);
+  }, [provider, loadAccounts]);
+  if (!provider || !accounts || accounts.length < 2) return null;
+  return (
+    <div className="model-menu-providers model-menu-accounts" role="group" aria-label={t("Account")}>
+      {accounts.map((account) => (
+        <button
+          aria-pressed={account.active}
+          className={`model-menu-provider ${account.active ? "model-menu-provider-on" : ""}`}
+          key={account.id}
+          onClick={() => !account.active && void setActiveAccount(provider, account.id, pending ? undefined : sessionId)}
+          title={account.auth?.account ?? undefined}
+          type="button"
+        >
+          {accountName(account)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function ModelList({ option, onPick, sessionId }: { option: SessionConfigOption; onPick: (value: string) => void; sessionId: string }) {
   const [filter, setFilter] = useState("");
   const value = typeof option.currentValue === "string" ? option.currentValue : "";
@@ -130,6 +162,7 @@ function ModelList({ option, onPick, sessionId }: { option: SessionConfigOption;
   return (
     <div className="model-menu-list">
       <ProviderSwitch sessionId={sessionId} />
+      <AccountSwitch sessionId={sessionId} />
       {local && (
         <div className="model-menu-local">
           <div className="model-menu-seg" role="group" aria-label={t("How the local model runs")}>

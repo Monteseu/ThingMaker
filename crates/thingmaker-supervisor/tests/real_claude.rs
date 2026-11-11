@@ -131,7 +131,7 @@ fn the_accounts_usage_is_read_from_claude_code() {
     let home = std::path::PathBuf::from(std::env::var("HOME").expect("HOME"));
     let (_, script) = locate_adapter(&home, None, std::env::var("THINGMAKER_CLAUDE_ACP").ok()).expect("claude-agent-acp is installed");
     let binary = usage_probe::locate_claude_binary(&script, &home).expect("Claude Code beside the adapter");
-    let quota = usage_probe::read_quota(&binary, Duration::from_secs(30)).expect("a reading");
+    let quota = usage_probe::read_quota(&binary, None, Duration::from_secs(30)).expect("a reading");
     eprintln!("{} · {:?} · {:?}", binary.display(), quota.plan, quota.windows);
     assert!(quota.windows.iter().any(|window| window.kind == "five_hour" && window.used_percent.is_some()));
 }

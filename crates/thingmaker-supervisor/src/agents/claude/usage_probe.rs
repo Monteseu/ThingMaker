@@ -55,8 +55,12 @@ pub fn locate_claude_binary(adapter_script: &Path, home: &Path) -> Option<PathBu
 }
 
 /// Asks Claude Code for the account's plan usage.
-pub fn read_quota(claude: &Path, timeout: Duration) -> Result<QuotaSnapshot, String> {
-    let env = EnvironmentProfile::trusted_local().resolve(std::env::vars());
+pub fn read_quota(claude: &Path, config_dir: Option<&Path>, timeout: Duration) -> Result<QuotaSnapshot, String> {
+    let mut profile = EnvironmentProfile::trusted_local();
+    if let Some(dir) = config_dir {
+        profile = profile.with_set("CLAUDE_CONFIG_DIR", dir.to_string_lossy());
+    }
+    let env = profile.resolve(std::env::vars());
     let mut child = crate::platform::command(claude)
         .args(["--output-format", "stream-json", "--input-format", "stream-json", "--verbose"])
         .current_dir(std::env::temp_dir())

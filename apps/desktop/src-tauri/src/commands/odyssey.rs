@@ -643,7 +643,7 @@ pub fn odyssey_claude_preflight(state: State<'_, AppState>) -> CommandResult<Cla
     let home = state.home.clone().unwrap_or_default();
     let script = resolved.prefix_args.first().map(std::path::PathBuf::from).unwrap_or_default();
     if let Some(binary) = thingmaker_supervisor::agents::claude::usage_probe::locate_claude_binary(&script, &home)
-        && let Ok(snapshot) = thingmaker_supervisor::agents::claude::usage_probe::read_quota(&binary, std::time::Duration::from_secs(20))
+        && let Ok(snapshot) = thingmaker_supervisor::agents::claude::usage_probe::read_quota(&binary, state.account_folder(thingmaker_supervisor::agents::Provider::Claude, None).as_deref(), std::time::Duration::from_secs(20))
     {
         if let Some(delegation) = state.delegation.get() {
             delegation.note_quota(snapshot.clone());

@@ -21,6 +21,7 @@ pub mod support;
 pub mod terminal;
 pub mod ultrareview;
 pub mod local;
+pub mod accounts;
 pub mod update;
 pub mod workspace;
 
