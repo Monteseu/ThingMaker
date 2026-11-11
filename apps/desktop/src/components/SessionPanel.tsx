@@ -28,6 +28,7 @@ import { BigThingBand, BigThingTurnCard, SideNotesCard } from "./BigThingLinks";
 import { BackgroundTasksButton } from "./BackgroundTasks";
 import { bigThingTurnOf, splitSideNotes, userMessageText } from "../bigThingTurns";
 import { AttachmentThumb, BlockImage, InlineImage, workspaceImageRenderer } from "./InlineImage";
+import { remoteFull } from "../toolImages";
 import { Markdown } from "../markdown";
 import { copiesItself, forkPointAt, splitNestedReports } from "../fork";
 import { hasConversation } from "../team";
@@ -74,7 +75,7 @@ function Blocks({ blocks, markdown, onLink, workspaceId }: { blocks: ContentBloc
               </pre>
             );
           case "image":
-            return <BlockImage data={block.data} key={index} mimeType={block.mimeType} uri={block.uri} workspaceId={workspaceId} />;
+            return <BlockImage data={block.data} full={remoteFull((block as { thingmakerFull?: unknown }).thingmakerFull)} key={index} mimeType={block.mimeType} uri={block.uri} workspaceId={workspaceId} />;
           case "audio":
             return (
               <span className="chip" key={index}>

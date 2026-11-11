@@ -154,6 +154,33 @@ const WELCOME_MS = 15_000;
 /** The computer answers a ping with a pong; a line this quiet is dead. */
 const PING_MS = 20_000;
 const SILENT_MS = 50_000;
+/**
+ * Quiet allowed while a call is unanswered. A big reply reaches the page only
+ * once it has fully arrived, and the computer's pong waits behind it; on slow
+ * mobile data that took longer than {@link SILENT_MS}, so the line was given
+ * up on mid-reply, the screens reloaded and asked for it again, forever.
+ */
+const BUSY_SILENT_MS = 150_000;
+/** Remembers the reconnect delay across the reload a reconnect does. */
+const RETRY_KEY = "thingmaker.remote.retry";
+
+function storedRetry(): number {
+  try {
+    const value = Number(sessionStorage.getItem(RETRY_KEY));
+    return Number.isFinite(value) && value >= 1000 ? Math.min(value, 15_000) : 1000;
+  } catch {
+    return 1000;
+  }
+}
+
+function storeRetry(value: number | null) {
+  try {
+    if (value === null) sessionStorage.removeItem(RETRY_KEY);
+    else sessionStorage.setItem(RETRY_KEY, String(value));
+  } catch {
+    // Without storage the delay starts over after a reload.
+  }
+}
 
 export class Bridge {
   private socket: Socket | null = null;
@@ -172,7 +199,7 @@ export class Bridge {
   private everOpen = false;
   /** Why the line last failed to open, kept while it retries. */
   private lastReason: string | undefined;
-  private retry = 1000;
+  private retry = storedRetry();
   /** When the line last said anything, and the timer that checks it. */
   private heard = 0;
   private watchdog: ReturnType<typeof setInterval> | undefined;
@@ -191,7 +218,8 @@ export class Bridge {
     clearInterval(this.watchdog);
     this.watchdog = setInterval(() => {
       const quiet = Date.now() - this.heard;
-      if (quiet > (this.state === "open" ? SILENT_MS : WELCOME_MS)) {
+      const allowed = this.state !== "open" ? WELCOME_MS : this.pending.size > 0 ? BUSY_SILENT_MS : SILENT_MS;
+      if (quiet > allowed) {
         socket.close();
         socket.onclose?.();
       } else if (this.state === "open" && quiet > PING_MS) socket.send(JSON.stringify({ t: "ping" }));
@@ -224,8 +252,12 @@ export class Bridge {
       this.setState("closed", this.lastReason);
       // A reconnect starts the screens over: streams missed while away are
       // read again from the Mac rather than patched together here.
-      setTimeout(() => (this.everOpen ? window.location.reload() : this.open()), this.retry);
+      // The delay grows across reloads too, so a line that keeps failing is
+      // not hammered once a second.
+      const delay = this.retry;
       this.retry = Math.min(this.retry * 2, 15_000);
+      if (this.everOpen) storeRetry(this.retry);
+      setTimeout(() => (this.everOpen ? window.location.reload() : this.open()), delay);
     };
   }
 
@@ -253,6 +285,7 @@ export class Bridge {
         this.everOpen = true;
         this.lastReason = undefined;
         this.retry = 1000;
+        storeRetry(null);
         this.setState("open");
         for (const queued of this.queue.splice(0)) {
           this.socket?.send(queued.text);

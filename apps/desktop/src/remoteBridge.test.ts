@@ -105,4 +105,30 @@ describe("the phone's bridge", () => {
     vi.advanceTimersByTime(10_000);
     expect(states).toContain("closed");
   });
+
+  it("waits longer on a quiet line while a reply is still on its way", () => {
+    const { bridge, socket } = connected();
+    const states: string[] = [];
+    bridge.watch((state) => states.push(state));
+    void bridge.call("session_open").catch(() => undefined);
+    // A big reply arrives whole or not at all; its pong waits behind it.
+    vi.advanceTimersByTime(120_000);
+    expect(states).not.toContain("closed");
+    socket.receive({ t: "result", id: calls(socket)[0]!.id, ok: true, value: null });
+    vi.advanceTimersByTime(45_000);
+    expect(states).not.toContain("closed");
+    vi.advanceTimersByTime(15_000);
+    expect(states).toContain("closed");
+  });
+
+  it("keeps growing the reconnect delay across the reload a reconnect does", () => {
+    sessionStorage.clear();
+    const { socket } = connected();
+    socket.close();
+    expect(sessionStorage.getItem("thingmaker.remote.retry")).toBe("2000");
+    // The reloaded page starts from there, and a welcome forgets it.
+    const { socket: next } = connected();
+    expect(sessionStorage.getItem("thingmaker.remote.retry")).toBeNull();
+    expect(next).toBeTruthy();
+  });
 });

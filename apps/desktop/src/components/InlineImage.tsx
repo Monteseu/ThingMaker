@@ -9,6 +9,7 @@ import type { WorkspaceImage } from "@thingmaker/contracts";
 import { t } from "../i18n";
 import { api } from "../ipc";
 import { useStore } from "../store";
+import type { RemoteFull } from "../toolImages";
 
 const cache = new Map<string, Promise<WorkspaceImage | null>>();
 
@@ -45,11 +46,77 @@ export function imageSource(data: string, mimeType: string | null | undefined): 
   return `data:${mimeType ?? "image/png"};base64,${trimmed.replace(/\s+/g, "")}`;
 }
 
+const originals = new Map<string, Promise<string>>();
+
+/** The original of a thumbnail, fetched once per page. */
+function loadOriginal(id: string): Promise<string> {
+  let pending = originals.get(id);
+  if (!pending) {
+    pending = api.remoteImage(id).then((image) => imageSource(image.data, image.mimeType));
+    pending.catch(() => originals.delete(id));
+    originals.set(id, pending);
+  }
+  return pending;
+}
+
+/**
+ * A picture the phone got as a thumbnail: shown small in the transcript, and
+ * fetched whole from the computer only when tapped.
+ */
+function ThumbnailImage({ data, full }: { data: string; full: RemoteFull }) {
+  const [open, setOpen] = useState(false);
+  const [original, setOriginal] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [actualSize, setActualSize] = useState(false);
+  const size = full.bytes ? `${Math.max(1, Math.round(full.bytes / 1024))} KiB` : "";
+
+  const show = () => {
+    setOpen(true);
+    setError(null);
+    loadOriginal(full.id).then(setOriginal, (failure: unknown) => setError((failure as { message?: string })?.message ?? t("The picture could not be loaded.")));
+  };
+
+  return (
+    <>
+      <button className="inline-image-button remote-thumb" onClick={show} title={t("Tap to load the full picture")} type="button">
+        {data ? <img alt={t("attached image")} className="image" src={imageSource(data, "image/jpeg")} /> : <span className="chip small">{t("picture")}</span>}
+        <span className="remote-thumb-label small muted">{size ? t("Preview · tap for full size ({size})", { size }) : t("Preview · tap for full size")}</span>
+      </button>
+      {open && (
+        <div aria-modal="true" className="modal-backdrop" onClick={() => setOpen(false)} role="dialog">
+          <div className={`image-lightbox${actualSize ? " image-lightbox-actual" : ""}`} onClick={(e) => e.stopPropagation()}>
+            {original ? (
+              <div className="image-lightbox-scroll">
+                <img alt={t("attached image")} onClick={() => setActualSize((value) => !value)} src={original} />
+              </div>
+            ) : error ? (
+              <p className="muted">{error}</p>
+            ) : (
+              <>
+                {data && <img alt={t("attached image")} className="image-lightbox-preview" src={imageSource(data, "image/jpeg")} />}
+                <p className="small muted">{t("Loading the full picture…")}</p>
+              </>
+            )}
+            <div className="row wrap">
+              {original && <span className="small muted">{actualSize ? t("Actual size · tap the picture to fit") : t("Tap the picture to see it at actual size")}</span>}
+              <button className="button button-small" onClick={() => setOpen(false)} type="button">
+                {t("Close")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 /** An image content block, with a labelled fallback instead of a broken icon. */
-export function BlockImage({ data, mimeType, uri, workspaceId }: { data: string | null | undefined; mimeType: string | null | undefined; uri: string | null | undefined; workspaceId: string }) {
+export function BlockImage({ data, mimeType, uri, workspaceId, full }: { data: string | null | undefined; mimeType: string | null | undefined; uri: string | null | undefined; workspaceId: string; full?: RemoteFull | undefined }) {
   const [broken, setBroken] = useState(false);
   const openUrl = useStore((s) => s.openUrl);
 
+  // A thumbnail from the computer: the original comes on a tap.
+  if (full && !broken) return <ThumbnailImage data={data ?? ""} full={full} />;
   // A workspace-relative uri is a file we can read ourselves.
   if (!data && uri && !/^[a-z]+:\/\//i.test(uri) && !uri.startsWith("/")) {
     return <InlineImage relative={uri.replace(/^\.\//, "")} workspaceId={workspaceId} />;

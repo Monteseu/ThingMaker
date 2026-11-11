@@ -1823,6 +1823,8 @@ export const COMMANDS = {
   remoteClearAccess: "remote_clear_access",
   remotePickApk: "remote_pick_apk",
   remoteSendApk: "remote_send_apk",
+  /** Phone only: the original of a picture it was sent as a thumbnail. */
+  remoteImage: "remote_image",
 } as const;
 
 export type CommandName = (typeof COMMANDS)[keyof typeof COMMANDS];

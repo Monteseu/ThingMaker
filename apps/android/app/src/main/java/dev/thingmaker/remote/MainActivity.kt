@@ -522,7 +522,13 @@ class MainActivity : Activity() {
         /** Images larger than this are re-encoded before they are sent. */
         private const val SMALL_ENOUGH = 700 * 1024
         private const val MAX_SIDE = 2048
-        private val SOCKETS = OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS).readTimeout(0, TimeUnit.SECONDS).pingInterval(25, TimeUnit.SECONDS).build()
+        /**
+         * OkHttp drops a line whose pong has not come back by the next ping. The
+         * computer's pong waits behind whatever reply it is sending, so on slow
+         * data a short interval cut lines that were busy, not dead; the page's
+         * own watchdog judges a quiet line with the calls it is waiting on in mind.
+         */
+        private val SOCKETS = OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS).readTimeout(0, TimeUnit.SECONDS).pingInterval(60, TimeUnit.SECONDS).build()
     }
 }
 

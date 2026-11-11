@@ -12,6 +12,7 @@
 pub mod apk;
 pub mod devices;
 pub mod dispatch;
+pub mod images;
 mod lan;
 mod relay;
 mod server;
@@ -70,6 +71,8 @@ pub struct RemoteState {
     /// Frames for one phone (`Some(id)`) or for every phone (`None`).
     pub direct: broadcast::Sender<(Option<String>, Arc<str>)>,
     offers: Mutex<HashMap<String, apk::ApkOffer>>,
+    /// Originals of the pictures phones got as thumbnails.
+    pub images: Arc<images::ImageCache>,
     /// The Mac's line to its relay: off, connecting, connected or error.
     relay: Mutex<RelayView>,
     /// Wakes the relay connection when its settings change.
@@ -194,6 +197,7 @@ impl RemoteState {
             revoked,
             direct,
             offers: Mutex::new(HashMap::new()),
+            images: Arc::new(images::ImageCache::default()),
             relay: Mutex::new(RelayView { url: None, state: "off".into(), message: None, access: false }),
             relay_changed: tokio::sync::Notify::new(),
         }
