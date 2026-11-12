@@ -1606,6 +1606,61 @@ body.resizing-sidebar * {
   align-self: center;
 }
 
+.starting-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin: auto 0;
+  padding: 32px 16px;
+  text-align: center;
+}
+
+.starting-status strong {
+  font-size: 18px;
+}
+
+.starting-status p {
+  margin: 0;
+}
+
+.starting-mark {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  margin-bottom: 8px;
+}
+
+.starting-mark::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: starting-spin 1.2s linear infinite;
+}
+
+.starting-mark-error::before {
+  animation: none;
+  border-top-color: var(--border);
+}
+
+.starting-queued {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@keyframes starting-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .starting-mark::before { animation: none; }
+}
+
 .card {
   border: 1px solid var(--border);
   border-radius: var(--radius);

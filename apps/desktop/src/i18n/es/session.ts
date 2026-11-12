@@ -551,5 +551,7 @@ export const session: Record<string, string> = {
   "Stops its agent. The conversation stays in the list.": "Detiene su agente. La conversación sigue en la lista.",
   "{provider} could not start: {error}": "{provider} no pudo arrancar: {error}",
   "Starting {provider}…": "Arrancando {provider}…",
+  "Setting up the office…": "Montando la oficina…",
+  "You can write now. Your message will be sent when everything is ready.": "Ya puedes escribir. Tu mensaje se enviará cuando esté todo listo.",
   "Sends as soon as {provider} is ready": "Se envía en cuanto {provider} esté listo",
 };

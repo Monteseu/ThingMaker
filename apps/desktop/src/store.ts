@@ -2274,9 +2274,12 @@ export const useStore = create<State>((set, get) => ({
         ...(launch?.reasoningEffort ? { reasoningEffort: launch.reasoningEffort } : {}),
         ...(launch?.combo ? { combo: launch.combo } : {}),
       });
-      await attachLive(get, set, opened.handle, workspaceId, true);
+      // Keep the preparation view visible through snapshot, subscription and
+      // history loading. A half-attached session otherwise looks like a blank chat.
+      await attachLive(get, set, opened.handle, workspaceId, !starting);
       const waited = get().starting;
       if (starting && waited?.id === starting.id) {
+        if (get().view.kind === "starting") get().selectSession(opened.handle.id);
         set({ starting: null });
         // What was written while it started carries over, and goes out if sent.
         if (waited.draft) {

@@ -40,14 +40,20 @@ export function StartingPanel() {
         <strong>{t("New session")}</strong>
         {workspace && <span className="muted">{workspace.displayPath.split(/[\\/]/).pop()}</span>}
       </header>
-      <div aria-busy={!starting.error} className="transcript">
-        <div className="starting-line" role="status">
-          <ProviderMark provider={starting.provider} size={15} />
-          {starting.error ? <span className="chip-warn-text">{t("{provider} could not start: {error}", { provider, error: starting.error })}</span> : <span className="muted">{t("Starting {provider}…", { provider })}</span>}
+      <div className="transcript">
+        <div className="starting-status" role="status">
+          <div aria-hidden="true" className={`starting-mark${starting.error ? " starting-mark-error" : ""}`}>
+            <ProviderMark provider={starting.provider} size={32} />
+          </div>
+          {starting.error ? <p className="chip-warn-text">{t("{provider} could not start: {error}", { provider, error: starting.error })}</p> : <>
+            <strong>{t("Setting up the office…")}</strong>
+            <span className="muted">{t("Starting {provider}…", { provider })}</span>
+            <p className="small muted">{t("You can write now. Your message will be sent when everything is ready.")}</p>
+          </>}
         </div>
         {starting.queued && (
           <article className="card card-user">
-                        <div className="starting-queued">{starting.draft}</div>
+            <div className="starting-queued">{starting.draft}</div>
             <span className="small muted">{t("Sends as soon as {provider} is ready", { provider })}</span>
           </article>
         )}
