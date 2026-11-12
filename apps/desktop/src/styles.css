@@ -7922,8 +7922,8 @@ html[data-platform="android"] { --traffic-lights: 8px; --titlebar: 52px; height:
   background: var(--warn);
 }
 
-/* The same meters in the sidebar footer, one row per provider, the bars
-   stretching so the columns line up. */
+/* The same meters in the sidebar footer, with equal-width bars so remaining
+   usage is comparable across providers and windows. */
 .sidebar-meters {
   display: grid;
   grid-template-columns: minmax(0, max-content) minmax(min-content, 1fr) minmax(min-content, 1fr);
@@ -7951,9 +7951,8 @@ html[data-platform="android"] { --traffic-lights: 8px; --titlebar: 52px; height:
 }
 
 .sidebar-meters .provider-meter-bar {
-  flex: 1;
-  width: auto;
-  min-width: 10px;
+  flex: 0 0 30px;
+  width: 30px;
 }
 
 .provider-actions {
