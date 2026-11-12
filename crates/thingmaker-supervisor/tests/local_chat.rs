@@ -19,11 +19,13 @@ use thingmaker_supervisor::{
 };
 
 /// Answers `/api/chat` with a streamed reply, and records each request body.
-fn fake_ollama() -> (String, Arc<Mutex<Vec<String>>>) {
+fn fake_ollama() -> (String, Arc<Mutex<Vec<String>>>, Arc<Mutex<Vec<serde_json::Value>>>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = format!("http://{}", listener.local_addr().unwrap());
     let bodies = Arc::new(Mutex::new(Vec::new()));
     let seen = Arc::clone(&bodies);
+    let unloads = Arc::new(Mutex::new(Vec::new()));
+    let unloaded = Arc::clone(&unloads);
     std::thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(mut stream) = stream else { continue };
@@ -51,6 +53,10 @@ fn fake_ollama() -> (String, Arc<Mutex<Vec<String>>>) {
                     r#"{"message":{"role":"assistant","content":""},"done":true,"prompt_eval_count":12,"eval_count":3,"total_duration":5000000}"#,
                 ];
                 format!("HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nConnection: close\r\n\r\n{}\n", lines.join("\n"))
+            } else if path == "/api/generate" {
+                unloaded.lock().unwrap().push(serde_json::from_slice(&body).unwrap());
+                let body = r#"{"done":true,"done_reason":"unload"}"#;
+                format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())
             } else if path == "/api/tags" {
                 let body = r#"{"models":[]}"#;
                 format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())
@@ -61,7 +67,7 @@ fn fake_ollama() -> (String, Arc<Mutex<Vec<String>>>) {
             let _ = stream.write_all(reply.as_bytes());
         }
     });
-    (address, bodies)
+    (address, bodies, unloads)
 }
 
 fn config(address: &str, home: &std::path::Path, resume: Option<String>) -> SessionActorConfig {
@@ -94,7 +100,7 @@ async fn settle(subscription: &mut thingmaker_supervisor::supervisor::EventSubsc
 
 #[tokio::test]
 async fn a_local_chat_answers_through_the_session_actor_and_resumes_with_its_history() {
-    let (address, bodies) = fake_ollama();
+    let (address, bodies, unloads) = fake_ollama();
     let home = tempfile::tempdir().unwrap();
 
     let config = config(&address, home.path(), None);
@@ -110,7 +116,9 @@ async fn a_local_chat_answers_through_the_session_actor_and_resumes_with_its_his
     let snapshot = actor.snapshot().await.expect("snapshot");
     assert_eq!(snapshot.provider, Provider::Local);
     let session_id = snapshot.agent_session_id.expect("the chat agent named the session");
-    let _ = actor.stop().await;
+    assert!(unloads.lock().unwrap().is_empty(), "keep the model loaded while the session is open");
+    actor.stop().await.expect("stopped");
+    assert_eq!(*unloads.lock().unwrap(), vec![serde_json::json!({"model":"qwen3:8b", "keep_alive":0, "stream":false})]);
     assert!(bodies.lock().unwrap()[0].contains("Name a deep-sea theme"));
 
     // ThingMaker restarts: the chat resumes, and the model sees the history.
@@ -118,7 +126,8 @@ async fn a_local_chat_answers_through_the_session_actor_and_resumes_with_its_his
     let mut subscription = actor.subscribe();
     actor.submit_text("r2", "Another one").await.expect("accepted");
     settle(&mut subscription).await;
-    let _ = actor.stop().await;
+    actor.stop().await.expect("stopped after resume");
+    assert_eq!(unloads.lock().unwrap().len(), 2, "each stopped attachment unloads its model");
     let second = bodies.lock().unwrap()[1].clone();
     assert!(second.contains("Name a deep-sea theme") && second.contains("Abyss Antics") && second.contains("Another one"), "the second request carried the whole conversation: {second}");
 }

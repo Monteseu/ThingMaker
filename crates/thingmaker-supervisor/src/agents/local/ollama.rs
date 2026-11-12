@@ -20,7 +20,11 @@ pub const ADDRESS: &str = "http://127.0.0.1:11434";
 /// Where Ollama listens: [`ADDRESS`], or `THINGMAKER_OLLAMA_ADDRESS` when it
 /// names this computer.
 pub fn address() -> String {
-    std::env::var(ADDRESS_ENV).ok().filter(|value| is_this_computer(value)).unwrap_or_else(|| ADDRESS.to_string())
+    local_address(std::env::var(ADDRESS_ENV).ok().as_deref())
+}
+
+pub(crate) fn local_address(value: Option<&str>) -> String {
+    value.filter(|value| is_this_computer(value)).unwrap_or(ADDRESS).to_string()
 }
 
 pub const ADDRESS_ENV: &str = "THINGMAKER_OLLAMA_ADDRESS";
@@ -226,6 +230,12 @@ impl Ollama {
             .collect())
     }
 
+    /// Releases the exact served model from memory without deleting it.
+    pub fn unload(&self, model: &str) -> Result<(), String> {
+        self.post("/api/generate", &json!({ "model": model, "keep_alive": 0, "stream": false }))?;
+        Ok(())
+    }
+
     /// Downloads a model, reporting progress, until done or `cancel` is set.
     pub fn pull(&self, name: &str, cancel: &AtomicBool, mut on_progress: impl FnMut(PullProgress)) -> Result<bool, String> {
         if is_cloud(name) {
@@ -388,6 +398,39 @@ fn error_text(response: reqwest::blocking::Response) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unload_uses_the_served_copy_and_reports_ollama_errors() {
+        use std::{io::{Read, Write}, net::TcpListener};
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            for status in ["200 OK", "500 Internal Server Error"] {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+                let mut header = Vec::new();
+                while !header.ends_with(b"\r\n\r\n") {
+                    let mut byte = [0];
+                    stream.read_exact(&mut byte).unwrap();
+                    header.push(byte[0]);
+                }
+                let header = String::from_utf8(header).unwrap();
+                assert!(header.starts_with("POST /api/generate "));
+                let len: usize = header.lines().find_map(|line| line.to_ascii_lowercase().strip_prefix("content-length:").map(|len| len.trim().parse().unwrap())).unwrap();
+                let mut body = vec![0; len];
+                stream.read_exact(&mut body).unwrap();
+                assert_eq!(serde_json::from_slice::<Value>(&body).unwrap(), json!({
+                    "model": "qwen3:8b-thingmaker-32k", "keep_alive": 0, "stream": false
+                }));
+                let body = if status.starts_with("200") { r#"{"done":true,"done_reason":"unload"}"# } else { r#"{"error":"cannot unload"}"# };
+                write!(stream, "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            }
+        });
+        let client = Ollama::new(&address);
+        client.unload("qwen3:8b-thingmaker-32k").unwrap();
+        assert_eq!(client.unload("qwen3:8b-thingmaker-32k").unwrap_err(), "cannot unload");
+        server.join().unwrap();
+    }
 
     #[test]
     fn short_reply_sends_only_the_supplied_context_without_tools() {

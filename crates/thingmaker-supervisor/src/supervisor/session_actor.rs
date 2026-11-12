@@ -369,6 +369,8 @@ pub struct SessionActor {
     handle: SessionHandle,
     commands: mpsc::Sender<Command>,
     events: broadcast::Sender<Arc<EventEnvelope>>,
+    /// Ollama endpoint and exact served name, retained until explicit stop.
+    local_model: Option<(String, String)>,
 }
 
 impl std::fmt::Debug for SessionActor {
@@ -391,6 +393,17 @@ impl SessionActor {
             environment = environment.with_set(name, value);
         }
         let spec = launch::launch_spec(&config.target, launch.arguments(), launch.root(), &environment, std::env::vars());
+        let local_model = match &launch {
+            AgentLaunch::Claude(options) => options.local.as_ref().map(|local| {
+                use crate::agents::local::{LocalKind, ollama};
+                let variable = match local.kind {
+                    LocalKind::Chat => ollama::ADDRESS_ENV,
+                    LocalKind::Agent => "ANTHROPIC_BASE_URL",
+                };
+                (ollama::local_address(spec.env.get(variable).map(String::as_str)), local.served.clone())
+            }),
+            _ => None,
+        };
         let generation = config.attachment_generation;
         let (transport, incoming) = Connection::spawn(&launch, spec, generation)
             .await
@@ -454,6 +467,7 @@ impl SessionActor {
                 handle,
                 commands: commands_tx,
                 events: events_tx,
+                local_model,
             }),
             Ok(Err(error)) => Err(error),
             Err(_) => Err(DesktopError::not_ready("session actor stopped during startup")),
@@ -585,9 +599,21 @@ impl SessionActor {
     }
 
     /// Cancels active work, closes the session and terminates the agent
-    /// within the shutdown budget.
+    /// within the shutdown budget, then releases its local model from memory.
     pub async fn stop(&self) -> Result<ExitInfo, DesktopError> {
-        self.send(|reply| Command::Stop { reply }).await
+        let exit = self.send(|reply| Command::Stop { reply }).await?;
+        if let Some((address, model)) = self.local_model.clone() {
+            // The process must be gone before unloading, so an in-flight
+            // request cannot load the model straight back into memory.
+            let result = tokio::task::spawn_blocking(move || {
+                crate::agents::local::ollama::Ollama::new(&address).unload(&model)
+            }).await;
+            match result {
+                Ok(Ok(())) => {},
+                error => tracing::warn!(?error, "session stopped but its local model could not be unloaded"),
+            }
+        }
+        Ok(exit)
     }
 }
 

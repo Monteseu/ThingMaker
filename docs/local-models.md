@@ -58,6 +58,11 @@ makes and hides, because Ollama loads models with 4,096 tokens by default.
 Local models share one GPU, so one local job runs at a time; the rest show
 "Waiting for the local model".
 
+**Stop session** terminates the session's process, then asks Ollama to release
+its model from memory (including the context-window copy used by agents).
+The installed model and conversation are kept, so the session can be resumed;
+Ollama loads the model again when it is needed.
+
 ## Tests
 
 - `tests/local_chat.rs`: a chat through the session actor against a stand-in
