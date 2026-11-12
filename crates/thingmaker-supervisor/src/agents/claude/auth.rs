@@ -89,11 +89,16 @@ pub fn read_status(executable: &PathBuf, args: &[String], config_dir: Option<&st
 /// scratch directory to ask, because that is where the catalog is advertised;
 /// nothing about the user's project is touched.
 pub fn read_models(executable: &PathBuf, args: &[String], scratch: &std::path::Path, timeout: Duration) -> Result<Vec<ProviderModel>, String> {
+    read_models_for_account(executable, args, scratch, None, timeout)
+}
+
+pub fn read_models_for_account(executable: &PathBuf, args: &[String], scratch: &std::path::Path, config_dir: Option<&std::path::Path>, timeout: Duration) -> Result<Vec<ProviderModel>, String> {
     use std::io::{BufRead, BufReader, Write};
 
     std::fs::create_dir_all(scratch).map_err(|error| error.to_string())?;
-    let mut child = Command::new(executable)
-        .args(args)
+    let mut command = Command::new(executable);
+    if let Some(dir) = config_dir { command.env("CLAUDE_CONFIG_DIR", dir); }
+    let mut child = command.args(args)
         .current_dir(scratch)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())

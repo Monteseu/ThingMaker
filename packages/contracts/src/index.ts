@@ -1624,8 +1624,10 @@ export type NotificationSettings = {
    *  id, and the effort it runs at. Absent means the built-in preference. */
   claudeOrchestratorModel?: string;
   claudeOrchestratorEffort?: string;
-  /** Claude model for reply suggestions; absent or empty disables them. */
+  /** Model for reply suggestions; absent or empty disables them. */
   replySuggestionModel?: string;
+  /** Missing means Claude, for settings saved before provider selection. */
+  replySuggestionProvider?: Provider;
   /** Hold off idle sleep while sessions, Big Things or team jobs work. */
   keepAwake: boolean;
   /** ...on battery too (off by default). */

@@ -1,5 +1,10 @@
 /** Spanish for the settings strings, keyed by their English text. */
 export const settings: Record<string, string> = {
+  "Reply suggestion provider": "Proveedor para sugerir respuestas",
+  "Loading models…": "Cargando modelos…",
+  "Models unavailable: {problem}": "Modelos no disponibles: {problem}",
+  "No models available for this provider.": "No hay modelos disponibles para este proveedor.",
+  "Uses only the last AI reply, your last message and the previous AI reply. Tab accepts without sending; Esc dismisses.": "Usa solo la última respuesta de la IA, tu último mensaje y la penúltima respuesta de la IA. Tab acepta sin enviar; Esc descarta.",
   "Reply suggestion model": "Modelo para sugerir respuestas",
   "Disabled": "Desactivado",
   "Tab to accept · Esc to dismiss": "Tab para aceptar · Esc para descartar",

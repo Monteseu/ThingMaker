@@ -284,6 +284,19 @@ impl Ollama {
         Ok(name)
     }
 
+    /// A bounded, tool-free completion for small UI helpers. Uses the short
+    /// request client's timeout rather than the unbounded streaming client.
+    pub fn short_reply(&self, model: &str, instruction: &str, input: &str) -> Result<String, String> {
+        if is_cloud(model) { return Err("reply suggestions require a local model".into()); }
+        let result = self.post("/api/chat", &json!({
+            "model": model, "stream": false, "think": false, "format": "json",
+            "messages": [{"role":"system", "content":instruction}, {"role":"user", "content":input}],
+            "options": {"num_predict": 160}
+        }))?;
+        result.get("message").and_then(|message| message.get("content")).and_then(Value::as_str)
+            .map(str::to_string).ok_or_else(|| "Ollama returned no reply".into())
+    }
+
     /// Streams a chat reply into `on_chunk` until it is done or `cancel` is
     /// set. `num_ctx` sets the window for this request; `think` turns a
     /// thinking model's thinking on or off.
@@ -375,6 +388,39 @@ fn error_text(response: reqwest::blocking::Response) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn short_reply_sends_only_the_supplied_context_without_tools() {
+        use std::{io::{Read, Write}, net::TcpListener};
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            let mut header = Vec::new();
+            while !header.ends_with(b"\r\n\r\n") {
+                let mut byte = [0];
+                stream.read_exact(&mut byte).unwrap();
+                header.push(byte[0]);
+            }
+            let header = String::from_utf8(header).unwrap();
+            assert!(header.starts_with("POST /api/chat "));
+            let len: usize = header.lines().find_map(|line| line.to_ascii_lowercase().strip_prefix("content-length:").map(|len| len.trim().parse().unwrap())).unwrap();
+            let mut body = vec![0; len];
+            stream.read_exact(&mut body).unwrap();
+            let value: Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(value["model"], "test-model");
+            assert_eq!(value["messages"], json!([{"role":"system","content":"instruction"},{"role":"user","content":"three messages"}]));
+            assert!(value.get("tools").is_none());
+            assert_eq!(value["stream"], false);
+            let response = json!({"message":{"content":"{\"reply\":\"Continue\"}"}}).to_string();
+            write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response).unwrap();
+        });
+        let client = Ollama::new(&address);
+        assert_eq!(client.short_reply("test-model", "instruction", "three messages").unwrap(), "{\"reply\":\"Continue\"}");
+        assert!(client.short_reply("model:cloud", "instruction", "three messages").is_err());
+        server.join().unwrap();
+    }
 
     #[test]
     fn cloud_models_and_thingmakers_own_copies_are_told_apart() {

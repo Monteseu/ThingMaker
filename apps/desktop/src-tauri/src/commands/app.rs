@@ -51,6 +51,8 @@ pub struct NotificationSettings {
     pub claude_orchestrator_effort: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reply_suggestion_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reply_suggestion_provider: Option<thingmaker_supervisor::agents::Provider>,
     /// Hold off idle sleep while sessions, Big Things or team jobs work.
     pub keep_awake: bool,
     /// ...and on battery too. Off by default: an overnight run on battery
@@ -74,6 +76,7 @@ impl Default for NotificationSettings {
             claude_orchestrator_model: None,
             claude_orchestrator_effort: None,
             reply_suggestion_model: None,
+            reply_suggestion_provider: None,
             keep_awake: true,
             keep_awake_on_battery: false,
         }
@@ -251,7 +254,8 @@ mod tests {
         let defaults = NotificationSettings::default();
         assert!(defaults.enabled && defaults.close_behavior == CloseBehavior::Ask);
         assert!(defaults.reply_suggestion_model.is_none());
-        let selected = NotificationSettings { reply_suggestion_model: Some("sonnet".into()), ..defaults.clone() };
+        assert!(defaults.reply_suggestion_provider.is_none());
+        let selected = NotificationSettings { reply_suggestion_model: Some("selected-model".into()), reply_suggestion_provider: Some(thingmaker_supervisor::agents::Provider::Codex), ..defaults.clone() };
         assert_eq!(serde_json::from_value::<NotificationSettings>(serde_json::to_value(&selected).unwrap()).unwrap(), selected);
         let parsed: NotificationSettings = serde_json::from_str("{\"enabled\": false}").unwrap();
         assert!(!parsed.enabled && parsed.notify_failed);

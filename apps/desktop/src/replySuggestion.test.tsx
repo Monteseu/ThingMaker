@@ -89,3 +89,17 @@ it("shows the result, dismisses it and makes no calls when disabled or missing c
   await act(() => vi.advanceTimersByTimeAsync(300));
   expect(api.replySuggest).toHaveBeenCalledTimes(1);
 });
+
+it("invalidates an in-flight suggestion when only the provider changes", async () => {
+  vi.useFakeTimers();
+  const resolves: ((text: string) => void)[] = [];
+  vi.mocked(api.replySuggest).mockImplementation(() => new Promise((done) => resolves.push(done)));
+  const { result, rerender } = renderHook(({ provider }: { provider: "claude" | "gemini" }) => useReplySuggestion("a", "shared-model", context, true, "", provider), { initialProps: { provider: "claude" } });
+  await act(() => vi.advanceTimersByTimeAsync(300));
+  rerender({ provider: "gemini" });
+  await act(async () => resolves[0]!("wrong provider"));
+  expect(result.current.suggestion).toBe("");
+  await act(() => vi.advanceTimersByTimeAsync(300));
+  await act(async () => resolves[1]!("correct provider"));
+  expect(result.current.suggestion).toBe("correct provider");
+});

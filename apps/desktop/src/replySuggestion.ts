@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import type { Provider } from "@thingmaker/contracts";
 import type { Card } from "./projection";
 import { api } from "./ipc";
 
@@ -17,8 +18,8 @@ export function suggestionMessages(cards: readonly Card[]): [string, string, str
   return texts as [string, string, string];
 }
 
-export function useReplySuggestion(sessionId: string, model: string | undefined, messages: [string, string, string] | null, eligible: boolean, draft: string) {
-  const key = JSON.stringify([sessionId, model, messages]);
+export function useReplySuggestion(sessionId: string, model: string | undefined, messages: [string, string, string] | null, eligible: boolean, draft: string, provider: Provider = "claude") {
+  const key = JSON.stringify([sessionId, model, messages, provider]);
   const [result, setResult] = useState<{ key: string; text: string } | null>(null);
   const [dismissed, setDismissed] = useState<string | null>(null);
   const attempted = useRef<string | null>(null);

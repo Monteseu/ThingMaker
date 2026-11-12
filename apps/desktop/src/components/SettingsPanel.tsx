@@ -1,5 +1,6 @@
 import { IS_REMOTE } from "../remote/mode";
 import { useEffect, useState } from "react";
+import { ReplySuggestionSettings } from "./ReplySuggestionSettings";
 import { PhoneSection } from "./PhoneSection";
 import {
   CLAUDE_ORCHESTRATOR_EFFORT,
@@ -288,15 +289,7 @@ export function SettingsPanel() {
 
       <section>
         <h3>{t("Composer and keyboard")}</h3>
-        <label className="field">
-          <span>{t("Reply suggestion model")}</span>
-          <select className="input" value={settings.replySuggestionModel ?? ""} onChange={(event) => update({ replySuggestionModel: event.target.value })}>
-            <option value="">{t("Disabled")}</option>
-            {settings.replySuggestionModel && !claudeModels.some((model) => model.value === settings.replySuggestionModel) && <option value={settings.replySuggestionModel}>{settings.replySuggestionModel}</option>}
-            {claudeModels.map((model) => <option key={model.value} value={model.value}>Claude · {model.name}{model.needsCredits ? " · " + t("uses credits") : ""}</option>)}
-          </select>
-          <span className="small muted">{t("Uses only the last AI reply, your last message and the previous AI reply. Tab accepts without sending; Esc dismisses. Uses your selected Claude account.")}</span>
-        </label>
+        <ReplySuggestionSettings settings={settings} onChange={update} />
         <label className="check">
           <input checked={uiPrefs.enterSends} onChange={(e) => void setUiPrefs({ enterSends: e.target.checked })} type="checkbox" />{" "}
           {t("Enter sends, Shift+Enter inserts a newline (unchecked inverts both)")}

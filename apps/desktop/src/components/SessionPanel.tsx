@@ -654,6 +654,7 @@ export function SessionPanel({ sessionId }: { sessionId: string }) {
   const draft = useStore((s) => s.drafts[sessionId] ?? "");
   const setDraft = useStore((s) => s.setDraft);
   const suggestionModel = useStore((s) => s.settings?.replySuggestionModel);
+  const suggestionProvider = useStore((s) => s.settings?.replySuggestionProvider ?? "claude");
   const send = useStore((s) => s.send);
   const steer = useStore((s) => s.steer);
   const enqueue = useStore((s) => s.enqueue);
@@ -678,7 +679,7 @@ export function SessionPanel({ sessionId }: { sessionId: string }) {
     && session.projection.foreground === "succeeded" && session.projection.attachment === "attached"
     && session.projection.process !== "exited" && !session.inFlightRequestId
     && attachments.length === 0 && mentions.length === 0;
-  const { suggestion, dismiss: dismissSuggestion } = useReplySuggestion(sessionId, suggestionModel, suggestionContext, suggestionEligible, draft);
+  const { suggestion, dismiss: dismissSuggestion } = useReplySuggestion(sessionId, suggestionModel, suggestionContext, suggestionEligible, draft, suggestionProvider);
   const addAttachments = useStore((s) => s.addAttachments);
   const removeAttachment = useStore((s) => s.removeAttachment);
   const addMention = useStore((s) => s.addMention);

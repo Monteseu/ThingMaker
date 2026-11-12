@@ -237,12 +237,13 @@ pub fn provider_login_cancel(run_id: String, state: State<'_, AppState>) -> Comm
 #[tauri::command]
 pub async fn provider_models(provider: Provider, state: State<'_, AppState>) -> CommandResult<Vec<ProviderModel>> {
     let resolved = state.resolve_provider(provider)?;
+    let folder = state.account_folder(provider, None);
     // The app's own data directory, not a project: asking for the catalog
     // opens a session, and that should leave nothing in the user's workspace.
     let scratch = state.data_dir.join("provider-probe");
     tauri::async_runtime::spawn_blocking(move || match provider {
-        Provider::Claude => claude::auth::read_models(&resolved.program, &resolved.prefix_args, &scratch, Duration::from_secs(45)).map_err(DesktopError::io),
-        Provider::Codex => codex::probe::read_models(&resolved.program, None, Duration::from_secs(45)).map_err(DesktopError::io),
+        Provider::Claude => claude::auth::read_models_for_account(&resolved.program, &resolved.prefix_args, &scratch, folder.as_deref(), Duration::from_secs(45)).map_err(DesktopError::io),
+        Provider::Codex => codex::probe::read_models(&resolved.program, folder.as_deref(), Duration::from_secs(45)).map_err(DesktopError::io),
         Provider::Gemini => gemini::probe::read_models(&resolved.program, Duration::from_secs(45)).map_err(DesktopError::io),
         Provider::Local => {
             let _ = &resolved;
