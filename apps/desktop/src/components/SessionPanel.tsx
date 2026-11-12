@@ -678,7 +678,9 @@ export function SessionPanel({ sessionId }: { sessionId: string }) {
   const suggestionEligible = !IS_REMOTE && tab === "transcript" && !!session
     && session.projection.foreground === "succeeded" && session.projection.attachment === "attached"
     && session.projection.process !== "exited" && !session.inFlightRequestId
-    && attachments.length === 0 && mentions.length === 0;
+    && attachments.length === 0 && mentions.length === 0
+    // A Local Models session is private: its messages go only to a local model.
+    && (session.snapshot.provider !== "local" || suggestionProvider === "local");
   const { suggestion, dismiss: dismissSuggestion } = useReplySuggestion(sessionId, suggestionModel, suggestionContext, suggestionEligible, draft, suggestionProvider);
   const addAttachments = useStore((s) => s.addAttachments);
   const removeAttachment = useStore((s) => s.removeAttachment);

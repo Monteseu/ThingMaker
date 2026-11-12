@@ -167,7 +167,7 @@ fn provider_reply(provider: Provider, stdout: &[u8]) -> CommandResult<String> {
             .filter_map(|line| serde_json::from_slice::<Value>(line).ok())
             .filter(|event| event.get("event").and_then(Value::as_str) == Some("result"))
             .filter_map(|event| event.get("result").cloned())
-            .last()
+            .next_back()
             .ok_or_else(|| DesktopError::io("invalid Antigravity response"))?;
         if value.get("status").and_then(Value::as_str) != Some("SUCCESS") {
             return Err(DesktopError::io("Antigravity suggestion failed"));
@@ -254,7 +254,8 @@ pub async fn reply_suggest(messages: [String; 3], state: State<'_, AppState>) ->
         Provider::Gemini => format!("{}\n", json!({"event":"user","message":{"content":input}})),
         _ => format!("{INSTRUCTION}\n\n{input}"),
     };
-    let result = tokio::time::timeout(Duration::from_secs(45), async {
+    
+    tokio::time::timeout(Duration::from_secs(45), async {
         let mut child = command.spawn().map_err(|error| DesktopError::io(error.to_string()))?;
         let mut stdin = child.stdin.take().ok_or_else(|| DesktopError::io("suggestion input unavailable"))?;
         stdin.write_all(input.as_bytes()).await.map_err(|error| DesktopError::io(error.to_string()))?;
@@ -266,8 +267,7 @@ pub async fn reply_suggest(messages: [String; 3], state: State<'_, AppState>) ->
         provider_reply(provider, &output.stdout)
     })
     .await
-    .map_err(|_| DesktopError::io("suggestion timed out"))?;
-    result
+    .map_err(|_| DesktopError::io("suggestion timed out"))?
 }
 
 #[cfg(test)]

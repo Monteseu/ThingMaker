@@ -43,3 +43,19 @@ it("updates the real composer after in-place transcript updates; Tab fills its d
   expect(composer.value).toBe("Añade las pruebas.");
   expect(send).not.toHaveBeenCalled();
 });
+
+it("never sends a Local Models session's messages to a cloud provider for a suggestion", async () => {
+  vi.useFakeTimers();
+  const suggest = vi.spyOn(api, "replySuggest").mockResolvedValue("Sí.");
+  const handle = { id: "local-session", attachmentGeneration: "1" };
+  const projection = emptyProjection();
+  projection.process = "ready";
+  projection.attachment = "attached";
+  projection.foreground = "succeeded";
+  projection.cards = [message("agent", "Anterior"), message("user", "Algo privado"), message("agent", "Respuesta")];
+  const session: LiveSession = { handle, workspaceId: "w", snapshot: { handle, provider: "local" } as Snapshot, projection, inFlightRequestId: null, steerInFlight: false, attention: "none", openedAt: 0, turnStartedAt: null, lastEventAt: null, usage: EMPTY_SESSION_USAGE };
+  useStore.setState({ sessions: { [handle.id]: session }, settings: { replySuggestionModel: "haiku", replySuggestionProvider: "claude" } as NotificationSettings, drafts: {}, attachments: {}, mentions: {}, sessionTab: "transcript" });
+  render(<SessionPanel sessionId={handle.id} />);
+  await act(() => vi.advanceTimersByTimeAsync(350));
+  expect(suggest).not.toHaveBeenCalled();
+});
