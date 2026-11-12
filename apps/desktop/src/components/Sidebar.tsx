@@ -234,6 +234,8 @@ function RowMenu({ row, at, onClose, onRename, parentLabel }: { row: Row; at: { 
   const forkSession = useStore((s) => s.forkSession);
   const nestSession = useStore((s) => s.nestSession);
   const stopAndArchive = useStore((s) => s.stopAndArchive);
+  const stop = useStore((s) => s.stop);
+  const running = useStore((s) => Boolean(row.liveId && s.sessions[row.liveId] && s.sessions[row.liveId]?.projection.process !== "exited"));
   const menu = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -302,6 +304,11 @@ function RowMenu({ row, at, onClose, onRename, parentLabel }: { row: Row; at: { 
       <button className="context-item" onClick={act(() => row.id && void pinSession(row.workspaceId, row.id, !row.pinned))} role="menuitem" type="button">
         {row.pinned ? t("Unpin") : t("Pin to top")}
       </button>
+      {running && row.liveId && (
+        <button className="context-item" onClick={act(() => row.liveId && void stop(row.liveId))} role="menuitem" title={t("Stops its agent. The conversation stays in the list.")} type="button">
+          {t("Stop session")}
+        </button>
+      )}
       {row.id && (
         <button
           className="context-item"

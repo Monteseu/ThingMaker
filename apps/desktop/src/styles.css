@@ -1545,6 +1545,19 @@ body.resizing-sidebar * {
   margin-top: 0;
 }
 
+/* A user bubble's copy/fork, just left of the bubble so they cover no text. */
+.card-user {
+  position: relative;
+}
+
+.card-actions-side {
+  position: absolute;
+  top: 8px;
+  right: 100%;
+  padding-right: 8px;
+  white-space: nowrap;
+}
+
 .card-actions-float {
   position: absolute;
   top: -2px;

@@ -118,7 +118,7 @@ Then call await_jobs for that job and reply with the worker's report verbatim, n
                     eprintln!("tool {:?} {title}", patch.status);
                 }
             }
-            SessionEvent::Diagnostic { text } => eprintln!("diagnostic: {}", text.chars().take(300).collect::<String>()),
+            SessionEvent::Diagnostic { text } | SessionEvent::AgentOutput { text } => eprintln!("diagnostic: {}", text.chars().take(300).collect::<String>()),
             SessionEvent::Turn(TurnEffect::Settled { phase, error, .. }) => {
                 eprintln!("settled {phase:?} {error:?}");
                 break;

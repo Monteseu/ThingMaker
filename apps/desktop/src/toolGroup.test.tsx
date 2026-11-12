@@ -79,7 +79,7 @@ describe("a folded run of tool calls", () => {
 });
 
 describe("grouping the transcript", () => {
-  it("puts the tool calls between two messages in one run, runtime lines included", () => {
+  it("puts the tool calls between two messages in one run, and leaves the agent program's log lines out", () => {
     const message = (key: string, role: "user" | "agent") => ({ kind: "message", key, message: { role, messageId: key, blocks: [], contentUnknown: false } }) as unknown as Card;
     const groups = groupCards([
       message("m1", "user"),
@@ -91,6 +91,6 @@ describe("grouping the transcript", () => {
       cards[2] as Card,
     ]);
     expect(groups.map((group) => group.kind)).toEqual(["single", "work", "single", "work"]);
-    expect(groups[1]?.kind === "work" && groups[1].cards.map((card) => card.key)).toEqual(["r1", "k-t1", "p1", "k-t2"]);
+    expect(groups[1]?.kind === "work" && groups[1].cards.map((card) => card.key)).toEqual(["k-t1", "p1", "k-t2"]);
   });
 });

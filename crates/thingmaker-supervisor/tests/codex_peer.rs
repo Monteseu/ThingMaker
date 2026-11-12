@@ -162,7 +162,7 @@ async fn a_turn_streams_messages_tools_subagents_usage_and_quota_then_settles() 
     let turn = history
         .iter()
         .find_map(|event| match &event.payload {
-            SessionEvent::Diagnostic { text } if text.starts_with("turn: ") => Some(text.clone()),
+            SessionEvent::Diagnostic { text } | SessionEvent::AgentOutput { text } if text.starts_with("turn: ") => Some(text.clone()),
             _ => None,
         })
         .expect("the mock echoes turn/start");
@@ -190,7 +190,7 @@ async fn an_approval_is_answered_by_the_workspaces_trust() {
         let answer = history
             .iter()
             .find_map(|event| match &event.payload {
-                SessionEvent::Diagnostic { text } if text.starts_with("answer: ") => Some(text.clone()),
+                SessionEvent::Diagnostic { text } | SessionEvent::AgentOutput { text } if text.starts_with("answer: ") => Some(text.clone()),
                 _ => None,
             })
             .expect("the mock echoes the answer");
@@ -220,7 +220,7 @@ async fn a_tool_of_the_sessions_own_server_is_approved_and_a_strangers_form_decl
     let answers: Vec<String> = history
         .iter()
         .filter_map(|event| match &event.payload {
-            SessionEvent::Diagnostic { text } if text.starts_with("answer: ") => Some(text.clone()),
+            SessionEvent::Diagnostic { text } | SessionEvent::AgentOutput { text } if text.starts_with("answer: ") => Some(text.clone()),
             _ => None,
         })
         .collect();

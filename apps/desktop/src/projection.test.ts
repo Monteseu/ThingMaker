@@ -129,3 +129,22 @@ describe("execution inspector", () => {
     expect(projection.lastSequence).toBe(String(sequence));
   });
 });
+
+describe("the agent program's own output", () => {
+  it("stays out of the transcript, while ThingMaker's diagnostics stay in", () => {
+    const projection = emptyProjection();
+    applyEvent(projection, envelope({ type: "agent_output", text: "[session/create] sessionId=abc phase=register" }));
+    applyEvent(projection, envelope({ type: "agent_output", text: "Ignored unsupported notification auth/status_update" }));
+    expect(projection.cards).toEqual([]);
+    applyEvent(projection, envelope({ type: "diagnostic", text: "The agent refused to set mode to plan" }));
+    expect(projection.cards.map((card) => card.kind)).toEqual(["diagnostic"]);
+  });
+
+  it("is left out of older sessions that stored it as a diagnostic", () => {
+    const projection = emptyProjection();
+    applyEvent(projection, envelope({ type: "diagnostic", text: "Ignored unsupported notification _auth/status_update" }));
+    applyEvent(projection, envelope({ type: "diagnostic", text: "Late response for request 7 was discarded" }));
+    applyEvent(projection, envelope({ type: "diagnostic", text: "[idle-compaction] skip: session busy" }));
+    expect(projection.cards).toEqual([]);
+  });
+});

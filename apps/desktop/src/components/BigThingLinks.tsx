@@ -113,8 +113,7 @@ export function SideNotesCard({ notes, own }: { notes: string[]; own: string }) 
       </details>
       {own && (
         <article className="card card-user">
-          <header className="small muted">{t("You")}</header>
-          <pre className="text">{own}</pre>
+                    <pre className="text">{own}</pre>
         </article>
       )}
     </>

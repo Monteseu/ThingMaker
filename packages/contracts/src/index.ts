@@ -287,6 +287,8 @@ export type SessionEvent =
   | ({ type: "runtime_event" } & RuntimeEvent)
   | ({ type: "quota" } & QuotaSnapshot)
   | { type: "diagnostic"; text: string }
+  /** The agent program's own log output; not shown in the transcript. */
+  | { type: "agent_output"; text: string }
   | ({ type: "turn" } & TurnEffect)
   | { type: "submission"; requestId: string; state: SubmissionState; message?: string }
   | { type: "steer"; messageId: string; state: SteerState }

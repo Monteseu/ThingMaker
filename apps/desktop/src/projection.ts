@@ -290,6 +290,8 @@ function pushCard(projection: Projection, card: DistributiveOmit<Card, "key">, s
 }
 
 /** Applies one envelope. Mutates and returns the same projection object. */
+const PROTOCOL_HOUSEKEEPING = /^(Ignored (unsupported notification|session\/update|ACP update|malformed desktop update)|Rejected unsupported client request|Late response for request|Protocol error on stdout|\[[\w/-]+\] )/;
+
 export function applyEvent(projection: Projection, envelope: EventEnvelope): Projection {
   const payload: SessionEvent = envelope.payload;
   projection.lastSequence = envelope.sequence;
@@ -319,7 +321,13 @@ export function applyEvent(projection: Projection, envelope: EventEnvelope): Pro
       break;
     }
     case "diagnostic":
-      pushCard(projection, { kind: "diagnostic", text: payload.text }, envelope.sequence);
+      // Older sessions stored the protocol's housekeeping as diagnostics;
+      // it is left out like the agent_output that replaced it.
+      if (!PROTOCOL_HOUSEKEEPING.test(payload.text)) pushCard(projection, { kind: "diagnostic", text: payload.text }, envelope.sequence);
+      break;
+    case "agent_output":
+      // The agent program's own logs and the protocol's housekeeping: not
+      // part of the conversation.
       break;
     case "turn":
       // A turn starting and finishing normally is already visible: the

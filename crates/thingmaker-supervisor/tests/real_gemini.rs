@@ -52,7 +52,7 @@ async fn turn(actor: &SessionActor, text: &str) -> (TurnPhase, String) {
             SessionEvent::Update(SessionUpdate::AgentMessage(message)) => {
                 reply.extend(message.content.iter().filter_map(|block| if let ContentBlock::Text { text } = block { Some(text.as_str()) } else { None }));
             }
-            SessionEvent::Diagnostic { text } => eprintln!("diagnostic: {}", text.chars().take(200).collect::<String>()),
+            SessionEvent::Diagnostic { text } | SessionEvent::AgentOutput { text } => eprintln!("diagnostic: {}", text.chars().take(200).collect::<String>()),
             SessionEvent::Turn(TurnEffect::Settled { phase, error, .. }) => {
                 eprintln!("settled {phase:?} {error:?}");
                 return (*phase, reply);

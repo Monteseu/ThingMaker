@@ -178,7 +178,7 @@ function EarlierConversation({ sessionId }: { sessionId: string }) {
     <>
       {messages.map((card) => (
         <article className={`card card-${card.message.role} card-earlier`} key={`earlier-${card.key}`}>
-          <header className="small muted">{card.message.role === "user" ? t("You") : PROVIDER_LABELS[from]}</header>
+          {card.message.role !== "user" && <header className="small muted">{PROVIDER_LABELS[from]}</header>}
           <Blocks blocks={shownBlocks(card)} markdown={card.message.role !== "user"} onLink={(url) => void openUrl(url)} workspaceId={session.workspaceId} />
         </article>
       ))}
@@ -328,19 +328,34 @@ function CardBody({ card, sessionId }: { card: Card; sessionId: string }) {
         if (nested.reports.length > 0) return <NestedReportsCard own={rest} reports={nested.reports} />;
         if (notes.length > 0) return <SideNotesCard notes={notes} own={rest} />;
       }
+      if (card.message.role === "user") {
+        // The right-hand bubble is always the person: no name over it. Its
+        // actions show beside it on hover.
+        return (
+          <article className="card card-user" title={card.message.messageId}>
+            {card.message.contentUnknown && <span className="chip chip-warn small">{t("content not supplied")}</span>}
+            <Blocks blocks={shownBlocks(card)} markdown={false} onLink={onLink} workspaceId={workspaceId} />
+            <span className="card-actions card-actions-side">
+              <button className="link small" onClick={() => copyText(messageText(card))} type="button">
+                {t("copy")}
+              </button>
+              <ForkFromHere cardKey={card.key} sessionId={sessionId} />
+            </span>
+          </article>
+        );
+      }
       return (
         <article className={`card card-${card.message.role}`}>
           <header className="small muted" title={card.message.messageId}>
-            {card.message.role === "user" ? t("You") : card.message.role === "thought" ? t("Reasoning") : provider ? PROVIDER_LABELS[provider] : t("Agent")}
+            { card.message.role === "thought" ? t("Reasoning") : provider ? PROVIDER_LABELS[provider] : t("Agent")}
             {card.message.contentUnknown && <span className="chip chip-warn small">{t("content not supplied")}</span>}
             <span className="card-actions">
               <button className="link small" onClick={() => copyText(messageText(card))} type="button">
                 {t("copy")}
               </button>
-              {card.message.role === "user" && <ForkFromHere cardKey={card.key} sessionId={sessionId} />}
             </span>
           </header>
-          <Blocks blocks={shownBlocks(card)} markdown={card.message.role !== "user"} onLink={onLink} workspaceId={workspaceId} />
+          <Blocks blocks={shownBlocks(card)} markdown onLink={onLink} workspaceId={workspaceId} />
         </article>
       );
     case "tool": {
@@ -419,7 +434,10 @@ type CardGroup = { kind: "single"; card: Card } | { kind: "runtime"; key: string
 export function groupCards(cards: Card[]): CardGroup[] {
   const out: CardGroup[] = [];
   for (const card of cards) {
-    const noisy = card.kind === "runtime" || card.kind === "diagnostic";
+    // The agent program's own log lines ("[session/create] …") are not part
+    // of the conversation: they are left out of the transcript.
+    if (card.kind === "runtime") continue;
+    const noisy = card.kind === "diagnostic";
     const quiet = card.kind === "permission" && card.decision === "allowed";
     const last = out.at(-1);
     if (card.kind === "tool") {

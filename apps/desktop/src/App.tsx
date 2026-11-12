@@ -8,6 +8,7 @@ import { WorkspaceView } from "./components/WorkspaceView";
 import { SessionPanel } from "./components/SessionPanel";
 import { OfficePane } from "./components/OfficePane";
 import { UpdatePrompt } from "./components/AppUpdate";
+import { StartingPanel } from "./components/StartingPanel";
 import { SignInPanel } from "./components/SignInPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { AttentionBanner, CloseRequestDialog, LockedResumeDialog } from "./components/Attention";
@@ -169,6 +170,7 @@ export function App() {
                   {!IS_REMOTE && <OfficePane key={`office-${view.sessionId}`} sessionId={view.sessionId} />}
                 </div>
               )}
+              {view.kind === "starting" && <StartingPanel />}
               {view.kind === "signin" && <SignInPanel />}
               {view.kind === "settings" && <SettingsPanel />}
               {view.kind === "teams" && <TeamsView />}

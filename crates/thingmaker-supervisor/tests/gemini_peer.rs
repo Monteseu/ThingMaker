@@ -75,7 +75,7 @@ async fn launches(actor: &SessionActor) -> Vec<Vec<String>> {
         .unwrap()
         .iter()
         .filter_map(|event| match &event.payload {
-            SessionEvent::Diagnostic { text } => text.strip_prefix("argv: ").and_then(|json| serde_json::from_str(json).ok()),
+            SessionEvent::Diagnostic { text } | SessionEvent::AgentOutput { text } => text.strip_prefix("argv: ").and_then(|json| serde_json::from_str(json).ok()),
             _ => None,
         })
         .collect()
@@ -134,7 +134,7 @@ async fn a_turn_streams_the_answer_tools_and_usage_then_settles() {
     assert!(tools.iter().any(|(title, _)| title.as_deref() == Some("Write /tmp/hello.txt")), "{tools:?}");
     assert!(tools.iter().any(|(_, status)| status.as_deref() == Some("failed")), "the refused command shows as failed: {tools:?}");
     assert!(events.iter().any(|event| matches!(event, SessionEvent::Update(SessionUpdate::Usage(usage)) if usage.used == Some(13798))));
-    assert!(events.iter().any(|event| matches!(event, SessionEvent::Diagnostic { text } if text.contains("refused RunCommand"))), "denials are reported");
+    assert!(events.iter().any(|event| matches!(event, SessionEvent::Diagnostic { text } | SessionEvent::AgentOutput { text } if text.contains("refused RunCommand"))), "denials are reported");
     let argv = &launches(&actor).await[0];
     assert!(argv.windows(2).any(|pair| pair == ["--mode", "plan"]));
     assert!(!argv.contains(&"--dangerously-skip-permissions".to_string()), "a read-only workspace never skips a prompt");

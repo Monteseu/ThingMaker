@@ -69,6 +69,14 @@ pub enum SessionEvent {
     Diagnostic {
         text: String,
     },
+    /// A line for the log, not the person: what the agent program wrote to
+    /// its own error output ("[session/create] …") and the protocol's
+    /// housekeeping ("Ignored unsupported notification …"). Kept apart from
+    /// diagnostics, which say something the person should know, so the
+    /// transcript can leave these out.
+    AgentOutput {
+        text: String,
+    },
     Turn(TurnEffect),
     Submission {
         request_id: String,

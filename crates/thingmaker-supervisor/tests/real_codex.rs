@@ -69,7 +69,7 @@ async fn a_thread_opens_and_one_real_turn_streams_settles_and_counts() {
             SessionEvent::Update(SessionUpdate::Usage(update)) if update.used.is_some() => usage = Some((update.used, update.size)),
             SessionEvent::Quota(snapshot) => quota = Some(snapshot.clone()),
             SessionEvent::Turn(TurnEffect::Settled { phase, stop_reason, error, .. }) => settled = Some((*phase, stop_reason.clone(), error.clone())),
-            SessionEvent::Diagnostic { text } => eprintln!("diagnostic: {text}"),
+            SessionEvent::Diagnostic { text } | SessionEvent::AgentOutput { text } => eprintln!("diagnostic: {text}"),
             _ => {}
         }
     }

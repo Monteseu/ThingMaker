@@ -1152,14 +1152,14 @@ impl ActorState {
             Incoming::Notification { method, params } => match method.as_str() {
                 "session/update" => {
                     let Some(params) = params else {
-                        self.emit(SessionEvent::Diagnostic {
+                        self.emit(SessionEvent::AgentOutput {
                             text: "Ignored session/update without params".into(),
                         });
                         return;
                     };
                     let routed = params.get("sessionId").and_then(Value::as_str);
                     if routed != Some(self.expected_session_id.as_str()) {
-                        self.emit(SessionEvent::Diagnostic {
+                        self.emit(SessionEvent::AgentOutput {
                             text: "Ignored ACP update for another session".into(),
                         });
                         return;
@@ -1175,16 +1175,16 @@ impl ActorState {
                             let update = self.name_message(update);
                             self.handle_update(update)
                         }
-                        Some(Err(error)) => self.emit(SessionEvent::Diagnostic {
+                        Some(Err(error)) => self.emit(SessionEvent::AgentOutput {
                             text: format!("Ignored malformed desktop update: {error}"),
                         }),
-                        None => self.emit(SessionEvent::Diagnostic {
+                        None => self.emit(SessionEvent::AgentOutput {
                             text: "Ignored session/update without update".into(),
                         }),
                     }
                 }
                 "$/cancel_request" | "$/cancelRequest" => {}
-                other => self.emit(SessionEvent::Diagnostic {
+                other => self.emit(SessionEvent::AgentOutput {
                     text: format!("Ignored unsupported notification {other}"),
                 }),
             },
@@ -1219,7 +1219,7 @@ impl ActorState {
                     let _ = self.transport.respond(&id, json!({ "outcome": outcome })).await;
                 }
                 other => {
-                    self.emit(SessionEvent::Diagnostic {
+                    self.emit(SessionEvent::AgentOutput {
                         text: format!("Rejected unsupported client request {other}"),
                     });
                     let _ = self
@@ -1231,7 +1231,7 @@ impl ActorState {
             Incoming::StderrLine(bytes) => {
                 self.last_progress = Instant::now();
                 let text = String::from_utf8_lossy(&bytes);
-                self.emit(SessionEvent::Diagnostic {
+                self.emit(SessionEvent::AgentOutput {
                     text: cap_chars(&text, limits::DIAGNOSTIC_LINE_CAP_BYTES),
                 });
             }
@@ -1253,12 +1253,12 @@ impl ActorState {
                 self.set_attachment(AttachmentState::Detached);
             }
             Incoming::Protocol(error) => {
-                self.emit(SessionEvent::Diagnostic {
+                self.emit(SessionEvent::AgentOutput {
                     text: format!("Protocol error on stdout: {error}"),
                 });
                 self.set_process(ProcessState::Degraded);
             }
-            Incoming::LateResponse { id } => self.emit(SessionEvent::Diagnostic {
+            Incoming::LateResponse { id } => self.emit(SessionEvent::AgentOutput {
                 text: format!("Late response for request {} was discarded", request_id_string(&id)),
             }),
             Incoming::Exited(info) => self.handle_exit(info),

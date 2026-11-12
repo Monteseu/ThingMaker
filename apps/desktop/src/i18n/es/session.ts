@@ -534,4 +534,8 @@ export const session: Record<string, string> = {
   "A copy of this conversation in a new session, nested under this one. This one stays as it is, and the copy reports back.": "Una copia de esta conversación en una sesión nueva, anidada bajo esta. Esta se queda como está, y la copia informa de vuelta.",
   "Whiteboard: {done} of {total} steps done": "Pizarra: {done} de {total} pasos hechos",
   "✓ {n} above": "✓ {n} arriba",
+  "Stops its agent. The conversation stays in the list.": "Detiene su agente. La conversación sigue en la lista.",
+  "{provider} could not start: {error}": "{provider} no pudo arrancar: {error}",
+  "Starting {provider}…": "Arrancando {provider}…",
+  "Sends as soon as {provider} is ready": "Se envía en cuanto {provider} esté listo",
 };

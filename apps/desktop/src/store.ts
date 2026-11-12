@@ -132,6 +132,8 @@ export type View =
   | { kind: "welcome" }
   | { kind: "workspace"; workspaceId: string }
   | { kind: "session"; sessionId: string }
+  /** A new session whose agent is still starting (see StartingPanel). */
+  | { kind: "starting" }
   | { kind: "signin" }
   | { kind: "settings" }
   | { kind: "teams" }
@@ -528,6 +530,10 @@ type State = {
   stop: (sessionId: string) => Promise<void>;
   refreshSnapshot: (sessionId: string) => Promise<void>;
   setConfigOption: (sessionId: string, configId: string, value: string) => Promise<void>;
+  /** A new session while its agent starts: what the person writes meanwhile,
+   *  and whether they sent it (it goes out once the session is ready). */
+  starting: { id: string; workspaceId: string; provider: Provider; draft: string; queued: boolean; error?: string } | null;
+  setStartingDraft: (draft: string, queued: boolean) => void;
   /** Signs in to a provider: its active account, or `account`. */
   startSignIn: (provider: Provider, account?: string) => Promise<void>;
   /** Each provider's accounts (Claude Code, Codex), the default first. */
@@ -950,6 +956,7 @@ export const useStore = create<State>((set, get) => ({
   defaultPresetId: null,
   signIn: null,
   accounts: {},
+  starting: null,
   settings: null,
   closeRequest: null,
   error: null,
@@ -2244,12 +2251,25 @@ export const useStore = create<State>((set, get) => ({
       }
     }
     const chosen: Provider = recorded ?? provider ?? startingProvider(get().providers);
-    set({ busy: mode.mode === "new" ? t("Starting {provider}", { provider: PROVIDER_LABELS[chosen] }) : t("Resuming {provider} session", { provider: PROVIDER_LABELS[chosen] }), error: null, lockedResume: null });
+    // A new session opens its chat at once, and the agent starts behind it.
+    const starting = mode.mode === "new" ? { id: crypto.randomUUID(), workspaceId, provider: chosen, draft: "", queued: false } : null;
+    if (starting) set({ starting, view: { kind: "starting" }, error: null, lockedResume: null });
+    else set({ busy: t("Resuming {provider} session", { provider: PROVIDER_LABELS[chosen] }), error: null, lockedResume: null });
     try {
       const opened = await api.sessionOpen({ workspaceId, mode, provider: chosen, ...launchDefaults(defaults, chosen) });
       await attachLive(get, set, opened.handle, workspaceId, true);
+      const waited = get().starting;
+      if (starting && waited?.id === starting.id) {
+        set({ starting: null });
+        // What was written while it started carries over, and goes out if sent.
+        if (waited.draft) {
+          get().setDraft(opened.handle.id, waited.draft);
+          if (waited.queued) void get().send(opened.handle.id);
+        }
+      }
     } catch (error) {
       const desktopError = asError(error);
+      if (starting && get().starting?.id === starting.id) set({ starting: { ...(get().starting ?? starting), error: desktopError.message } });
       if (mode.mode === "resume" && desktopError.code === "LOCKED") {
         set({ lockedResume: { workspaceId, sessionId: mode.session_id, error: desktopError } });
       }
@@ -3121,6 +3141,11 @@ export const useStore = create<State>((set, get) => ({
     } catch (error) {
       set({ error: asError(error), signIn: null });
     }
+  },
+
+  setStartingDraft(draft, queued) {
+    const starting = get().starting;
+    if (starting) set({ starting: { ...starting, draft, queued } });
   },
 
   async loadAccounts(provider) {

@@ -61,7 +61,7 @@ async fn one_real_turn_streams_text_settles_and_reports_quota() {
             }
             SessionEvent::Quota(snapshot) => quota = Some(snapshot.clone()),
             SessionEvent::Turn(TurnEffect::Settled { phase, stop_reason, error, .. }) => settled = Some((*phase, stop_reason.clone(), error.clone())),
-            SessionEvent::Diagnostic { text } if text.contains("rror") => eprintln!("diagnostic: {text}"),
+            SessionEvent::Diagnostic { text } | SessionEvent::AgentOutput { text } if text.contains("rror") => eprintln!("diagnostic: {text}"),
             _ => {}
         }
     }

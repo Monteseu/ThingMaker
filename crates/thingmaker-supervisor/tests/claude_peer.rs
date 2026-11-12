@@ -459,7 +459,7 @@ async fn an_orchestrator_that_may_not_start_subagents_says_so_to_the_sdk() {
     let meta = history
         .iter()
         .find_map(|event| match &event.payload {
-            SessionEvent::Diagnostic { text } if text.starts_with("meta: ") => Some(text.clone()),
+            SessionEvent::Diagnostic { text } | SessionEvent::AgentOutput { text } if text.starts_with("meta: ") => Some(text.clone()),
             _ => None,
         })
         .expect("the mock echoes session/new's _meta");
