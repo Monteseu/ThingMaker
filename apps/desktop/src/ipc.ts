@@ -453,6 +453,7 @@ export const api = {
   remoteSendApk: (path: string, device?: string) => call<ApkOffer>(COMMANDS.remoteSendApk, { path, device: device ?? null }),
   /** Phone only: the original of a picture the computer sent as a thumbnail. */
   remoteImage: (id: string) => call<{ mimeType: string; data: string }>(COMMANDS.remoteImage, { id }),
+  replySuggest: (messages: [string, string, string]) => call<string>(COMMANDS.replySuggest, { messages }),
   settingsGet: () => call<NotificationSettings>(COMMANDS.settingsGet),
   keepAwakeStatus: () => call<KeepAwakeStatus>(COMMANDS.keepAwakeStatus),
   keepAwakeRefresh: () => call<KeepAwakeStatus>(COMMANDS.keepAwakeRefresh),

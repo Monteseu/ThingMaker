@@ -378,6 +378,7 @@ pub fn run() {
             commands::delegation::delegation_job_retry,
             commands::delegation::delegation_retry_policy_get,
             commands::delegation::delegation_retry_policy_set,
+            commands::suggestions::reply_suggest,
             commands::app::settings_get,
             commands::app::settings_set,
             commands::app::app_hide_to_tray,

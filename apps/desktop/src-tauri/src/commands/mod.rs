@@ -4,6 +4,7 @@
 //! validated in Rust even though the TypeScript client is typed.
 
 pub mod app;
+pub mod suggestions;
 pub mod artifacts;
 pub mod attachments;
 pub mod delegation;

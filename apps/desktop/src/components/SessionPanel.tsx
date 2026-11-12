@@ -45,6 +45,8 @@ import { ProviderMark } from "./ProviderMark";
 import { IconAgents, IconArrowUp, IconAt, IconBox, IconBranch, IconCheck, IconChevron, IconDots, IconFolder, IconImage, IconPaperclip, IconSquare } from "./icons";
 import { withoutHandoff } from "../team";
 
+import { suggestionMessages, suggestionKey, useReplySuggestion } from "../replySuggestion";
+
 const EMPTY_LIST: never[] = [];
 
 /** A sentence with one piece of markup in it, at `{name}`. */
@@ -651,6 +653,7 @@ export function SessionPanel({ sessionId }: { sessionId: string }) {
   const session = useStore((s) => s.sessions[sessionId]);
   const draft = useStore((s) => s.drafts[sessionId] ?? "");
   const setDraft = useStore((s) => s.setDraft);
+  const suggestionModel = useStore((s) => s.settings?.replySuggestionModel);
   const send = useStore((s) => s.send);
   const steer = useStore((s) => s.steer);
   const enqueue = useStore((s) => s.enqueue);
@@ -670,6 +673,12 @@ export function SessionPanel({ sessionId }: { sessionId: string }) {
   const uiPrefs = useStore((s) => s.uiPrefs);
   const attachments = useStore((s) => s.attachments[sessionId] ?? EMPTY_LIST);
   const mentions = useStore((s) => s.mentions[sessionId] ?? EMPTY_LIST);
+  const suggestionContext = useMemo(() => suggestionMessages(session?.projection.cards ?? EMPTY_LIST), [session?.projection.cards, session?.projection.lastSequence]);
+  const suggestionEligible = !IS_REMOTE && tab === "transcript" && !!session
+    && session.projection.foreground === "succeeded" && session.projection.attachment === "attached"
+    && session.projection.process !== "exited" && !session.inFlightRequestId
+    && attachments.length === 0 && mentions.length === 0;
+  const { suggestion, dismiss: dismissSuggestion } = useReplySuggestion(sessionId, suggestionModel, suggestionContext, suggestionEligible, draft);
   const addAttachments = useStore((s) => s.addAttachments);
   const removeAttachment = useStore((s) => s.removeAttachment);
   const addMention = useStore((s) => s.addMention);
@@ -1011,6 +1020,7 @@ export function SessionPanel({ sessionId }: { sessionId: string }) {
         return;
       }
     }
+    if (suggestionKey(event, suggestion, (text) => setDraft(sessionId, text), dismissSuggestion)) return;
     if (event.key === "Enter" && !event.nativeEvent.isComposing) {
       const sends = uiPrefs.enterSends ? !event.shiftKey : event.shiftKey;
       if (!sends) return;
@@ -1324,10 +1334,11 @@ export function SessionPanel({ sessionId }: { sessionId: string }) {
           <textarea
             aria-label={t("Prompt")}
             className="textarea"
-            onChange={(event) => setDraft(sessionId, event.target.value)}
+            onChange={(event) => { dismissSuggestion(); setDraft(sessionId, event.target.value); }}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
-            placeholder={
+            aria-describedby={suggestion ? "reply-suggestion-hint" : undefined}
+            placeholder={suggestion || (
               active
                 ? canSteer
                   ? steerFirst
@@ -1337,12 +1348,13 @@ export function SessionPanel({ sessionId }: { sessionId: string }) {
                 : uiPrefs.enterSends
                   ? t("Enter to send | Shift + Enter for newline")
                   : t("Shift + Enter to send | Enter for newline")
-            }
+            )}
             ref={composerRef}
             rows={1}
             value={draft}
           />
         </div>
+        {suggestion && <span className="small muted" id="reply-suggestion-hint">{t("Tab to accept · Esc to dismiss")}</span>}
         <div className="composer-row">
           <button
             aria-label={t("Attach media")}

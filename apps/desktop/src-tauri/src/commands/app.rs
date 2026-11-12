@@ -49,6 +49,8 @@ pub struct NotificationSettings {
     pub claude_orchestrator_model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub claude_orchestrator_effort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reply_suggestion_model: Option<String>,
     /// Hold off idle sleep while sessions, Big Things or team jobs work.
     pub keep_awake: bool,
     /// ...and on battery too. Off by default: an overnight run on battery
@@ -71,6 +73,7 @@ impl Default for NotificationSettings {
             odyssey_token_budget: None,
             claude_orchestrator_model: None,
             claude_orchestrator_effort: None,
+            reply_suggestion_model: None,
             keep_awake: true,
             keep_awake_on_battery: false,
         }
@@ -116,6 +119,9 @@ pub fn settings_set(settings: NotificationSettings, state: State<'_, AppState>) 
     }
     if [&settings.claude_orchestrator_model, &settings.claude_orchestrator_effort].iter().any(|value| value.as_ref().is_some_and(|text| text.len() > 128)) {
         return Err(DesktopError::io("the Claude model or effort is not a valid id"));
+    }
+    if settings.reply_suggestion_model.as_ref().is_some_and(|model| model.len() > 128 || model.chars().any(char::is_control)) {
+        return Err(DesktopError::io("invalid reply suggestion model"));
     }
     state
         .with_storage(|storage| storage.setting_set(SETTINGS_KEY, GLOBAL_SCOPE, &settings))
@@ -244,6 +250,9 @@ mod tests {
         assert!(!valid_clock("24:00") && !valid_clock("12") && !valid_clock("12:60") && !valid_clock("a:b"));
         let defaults = NotificationSettings::default();
         assert!(defaults.enabled && defaults.close_behavior == CloseBehavior::Ask);
+        assert!(defaults.reply_suggestion_model.is_none());
+        let selected = NotificationSettings { reply_suggestion_model: Some("sonnet".into()), ..defaults.clone() };
+        assert_eq!(serde_json::from_value::<NotificationSettings>(serde_json::to_value(&selected).unwrap()).unwrap(), selected);
         let parsed: NotificationSettings = serde_json::from_str("{\"enabled\": false}").unwrap();
         assert!(!parsed.enabled && parsed.notify_failed);
         assert!(parsed.keep_awake && !parsed.keep_awake_on_battery, "settings saved before keep-awake existed turn it on, on mains power only");

@@ -1624,6 +1624,8 @@ export type NotificationSettings = {
    *  id, and the effort it runs at. Absent means the built-in preference. */
   claudeOrchestratorModel?: string;
   claudeOrchestratorEffort?: string;
+  /** Claude model for reply suggestions; absent or empty disables them. */
+  replySuggestionModel?: string;
   /** Hold off idle sleep while sessions, Big Things or team jobs work. */
   keepAwake: boolean;
   /** ...on battery too (off by default). */
@@ -1834,6 +1836,7 @@ export const COMMANDS = {
   delegationRetryPolicySet: "delegation_retry_policy_set",
   workspacePick: "workspace_pick",
   revealInFinder: "reveal_in_finder",
+  replySuggest: "reply_suggest",
   settingsGet: "settings_get",
   settingsSet: "settings_set",
   appHideToTray: "app_hide_to_tray",
