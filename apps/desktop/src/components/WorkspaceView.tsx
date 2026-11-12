@@ -4,7 +4,7 @@
  * into rows that say what is inside before they are opened.
  */
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { PROVIDERS, PROVIDER_LABELS, type Provider, type SessionRecord, type TeamPreset } from "@thingmaker/contracts";
+import { PROVIDERS, PROVIDER_LABELS, parseLocalModel, type Provider, type SessionRecord, type TeamPreset } from "@thingmaker/contracts";
 import { startingProvider, useStore } from "../store";
 import { api } from "../ipc";
 import { OutboxPanel } from "./OutboxPanel";
@@ -12,6 +12,7 @@ import { ProviderMark } from "./ProviderMark";
 import { relative, RowMenu, type Row } from "./Sidebar";
 import { IconArrowUp, IconBranch, IconCheck, IconChevron, IconDots } from "./icons";
 import { t } from "../i18n";
+import { localKindLabel } from "../localModels";
 
 /** How many sessions the home lists before "Show all". */
 const RECENT = 8;
@@ -315,6 +316,8 @@ function ModelChoice({ provider, model, onPick }: { provider: Provider; model: s
   const root = useDismiss(open, close);
   const available = PROVIDERS.filter((candidate) => providers?.find((entry) => entry.provider === candidate)?.resolved);
   const name = (model && catalog[provider]?.find((entry) => entry.id === model)?.name) ?? (model === "opus" ? "Opus" : model) ?? t("Default model");
+  const label = (candidate: Provider, id: string | null, name: string) =>
+    candidate === "local" ? `${name} · ${localKindLabel(parseLocalModel(id ?? undefined).kind)}` : name;
 
   useEffect(() => {
     if (open) void loadProviderModels(browsing);
@@ -335,7 +338,7 @@ function ModelChoice({ provider, model, onPick }: { provider: Provider; model: s
       >
         <ProviderMark provider={provider} size={13} />
         <span className="model-chip-model">
-          {PROVIDER_LABELS[provider]} · {name}
+          {PROVIDER_LABELS[provider]} · {label(provider, model, name)}
         </span>
         <IconChevron open size={11} />
       </button>
@@ -362,7 +365,7 @@ function ModelChoice({ provider, model, onPick }: { provider: Provider; model: s
                       type="button"
                     >
                       {candidate === provider && entry.id === model ? <IconCheck size={12} /> : <span className="home-choice-slot" />}
-                      {entry.name}
+                      {label(candidate, entry.id, entry.name)}
                     </button>
                   ))}
                   {!catalog[candidate] && <span className="small muted home-choice-loading">{t("Loading models…")}</span>}

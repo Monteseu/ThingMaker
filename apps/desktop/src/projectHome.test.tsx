@@ -83,6 +83,25 @@ describe("a project's home", () => {
     expect(openSessionWithPreset).toHaveBeenCalledWith("w1", preset, undefined);
   });
 
+  it("distinguishes local chat and agent choices and starts the selected mode", () => {
+    const openSession = vi.fn(async () => undefined);
+    const localModel = { name: "qwen2.5-coder:7b", needsCredits: false, efforts: [], inputImage: false, isDefault: false };
+    useStore.setState({
+      openSession,
+      providers: [{ provider: "local", resolved: {}, auth: { loggedIn: true } }],
+      providerModels: { local: [{ ...localModel, id: "@chat/qwen2.5-coder:7b" }, { ...localModel, id: "@agent/qwen2.5-coder:7b" }] },
+      loadProviderModels: vi.fn(async () => []),
+    } as never);
+    render(<WorkspaceView workspaceId="w1" />);
+    fireEvent.click(screen.getByTitle("Provider and model"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Local Models" }));
+    expect(screen.getByRole("menuitemradio", { name: "qwen2.5-coder:7b · Chat" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "qwen2.5-coder:7b · Agent" }));
+    expect(screen.getByTitle("Provider and model").textContent).toContain("qwen2.5-coder:7b · Agent");
+    fireEvent.click(screen.getByRole("button", { name: "Start session" }));
+    expect(openSession).toHaveBeenCalledWith("w1", { mode: "new" }, "local", { model: "@agent/qwen2.5-coder:7b" });
+  });
+
   it("lists recent sessions, folds the rest, and opens one from its row", () => {
     const openSession = vi.fn(async () => undefined);
     useStore.setState({ openSession } as never);
