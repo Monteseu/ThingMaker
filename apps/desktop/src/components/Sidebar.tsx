@@ -38,7 +38,7 @@ function storedLabel(id: string, title: string | undefined): string {
   return t("Session {id}", { id: id.replace(/^(cx|tm)-/, "").slice(0, 8) });
 }
 
-function relative(iso: string | undefined): string {
+export function relative(iso: string | undefined): string {
   if (!iso) return "";
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return "";
@@ -51,7 +51,7 @@ function relative(iso: string | undefined): string {
 }
 
 /** One session as the sidebar sees it, whether attached or only on disk. */
-type Row = {
+export type Row = {
   workspaceId: string;
   project: string;
   /** The agent's session id: the identity the pin and archive flags are keyed
@@ -228,7 +228,7 @@ function SessionRow({
 }
 
 /** Right-click (or the ⋯ action) menu for one session row. */
-function RowMenu({ row, at, onClose, onRename, parentLabel }: { row: Row; at: { x: number; y: number }; onClose: () => void; onRename: () => void; parentLabel: string | null }) {
+export function RowMenu({ row, at, onClose, onRename, parentLabel }: { row: Row; at: { x: number; y: number }; onClose: () => void; onRename?: () => void; parentLabel: string | null }) {
   const pinSession = useStore((s) => s.pinSession);
   const archiveSession = useStore((s) => s.archiveSession);
   const forkSession = useStore((s) => s.forkSession);
@@ -271,9 +271,11 @@ function RowMenu({ row, at, onClose, onRename, parentLabel }: { row: Row; at: { 
       // Keep the menu on screen when the row is near the bottom edge.
       style={{ left: Math.min(at.x, window.innerWidth - 200), top: Math.min(at.y, window.innerHeight - 170) }}
     >
-      <button className="context-item" onClick={act(onRename)} role="menuitem" type="button">
-        {t("Rename…")}
-      </button>
+      {onRename && (
+        <button className="context-item" onClick={act(onRename)} role="menuitem" type="button">
+          {t("Rename…")}
+        </button>
+      )}
       {row.id && (
         <button
           className="context-item"

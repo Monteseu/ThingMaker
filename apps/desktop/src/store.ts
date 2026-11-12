@@ -441,7 +441,7 @@ type State = {
   /** Makes a preset (or none) what a new session starts with. */
   setDefaultPreset: (id: string | null) => Promise<void>;
   /** Starts a session led by the preset's orchestrator, with its workers. */
-  openSessionWithPreset: (workspaceId: string, preset: TeamPreset) => Promise<void>;
+  openSessionWithPreset: (workspaceId: string, preset: TeamPreset, message?: string) => Promise<void>;
   /**
    * Applies a preset to a live session. Workers change at once; the
    * orchestrator's model and effort are set through its own options. A
@@ -512,7 +512,7 @@ type State = {
   refreshClaudeUsage: () => Promise<UsageSnapshot | null>;
   setShowHidden: (show: boolean) => void;
   /** Opens or resumes a session. A resume runs on the provider that wrote it; a new one on `provider`, else the last one used. */
-  openSession: (workspaceId: string, mode: OpenMode, provider?: Provider) => Promise<void>;
+  openSession: (workspaceId: string, mode: OpenMode, provider?: Provider, launch?: NewSessionLaunch) => Promise<void>;
   /** Opens a fresh session on a named agent and returns how to address it. */
   openSessionFor: (workspaceId: string, provider: Provider, combo?: Combo) => Promise<{ key: string; agentSessionId: string } | null>;
   selectSession: (sessionId: string) => void;
@@ -708,6 +708,13 @@ function launchDefaults(defaults: SessionDefaults, provider: Provider): { model?
     ...(choice.reasoningEffort ? { reasoningEffort: choice.reasoningEffort } : {}),
   };
 }
+
+/**
+ * What a new session starts with beyond its provider: a model and effort that
+ * override the remembered ones, a team, and a first message that goes out as
+ * soon as the agent is ready.
+ */
+export type NewSessionLaunch = { model?: string; reasoningEffort?: string; combo?: Combo; message?: string };
 
 /** The adapter's alias for its current Opus. */
 const CLAUDE_DEFAULT_MODEL = "opus";
@@ -2225,7 +2232,7 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  async openSession(workspaceId, mode, provider) {
+  async openSession(workspaceId, mode, provider, launch) {
     // Which program wrote this session decides which one can resume it. The
     // record knows, and the native side reads it again on a resume: launching
     // one provider against another's session id would ask the wrong program
@@ -2252,11 +2259,20 @@ export const useStore = create<State>((set, get) => ({
     }
     const chosen: Provider = recorded ?? provider ?? startingProvider(get().providers);
     // A new session opens its chat at once, and the agent starts behind it.
-    const starting = mode.mode === "new" ? { id: crypto.randomUUID(), workspaceId, provider: chosen, draft: "", queued: false } : null;
+    const message = launch?.message?.trim() ? launch.message : "";
+    const starting = mode.mode === "new" ? { id: crypto.randomUUID(), workspaceId, provider: chosen, draft: message, queued: !!message } : null;
     if (starting) set({ starting, view: { kind: "starting" }, error: null, lockedResume: null });
     else set({ busy: t("Resuming {provider} session", { provider: PROVIDER_LABELS[chosen] }), error: null, lockedResume: null });
     try {
-      const opened = await api.sessionOpen({ workspaceId, mode, provider: chosen, ...launchDefaults(defaults, chosen) });
+      const opened = await api.sessionOpen({
+        workspaceId,
+        mode,
+        provider: chosen,
+        ...launchDefaults(defaults, chosen),
+        ...(launch?.model ? { model: launch.model } : {}),
+        ...(launch?.reasoningEffort ? { reasoningEffort: launch.reasoningEffort } : {}),
+        ...(launch?.combo ? { combo: launch.combo } : {}),
+      });
       await attachLive(get, set, opened.handle, workspaceId, true);
       const waited = get().starting;
       if (starting && waited?.id === starting.id) {
@@ -2816,24 +2832,14 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  async openSessionWithPreset(workspaceId, preset) {
+  async openSessionWithPreset(workspaceId, preset, message) {
     const { provider, model, effort } = preset.orchestrator;
-    set({ busy: t("Starting {name}", { name: preset.name }), error: null });
-    try {
-      const opened = await api.sessionOpen({
-        workspaceId,
-        mode: { mode: "new" },
-        provider,
-        ...(model ? { model } : {}),
-        ...(effort ? { reasoningEffort: effort } : {}),
-        combo: preset.combo,
-      });
-      await attachLive(get, set, opened.handle, workspaceId, true);
-    } catch (error) {
-      set({ error: asError(error) });
-    } finally {
-      set({ busy: null });
-    }
+    await get().openSession(workspaceId, { mode: "new" }, provider, {
+      ...(model ? { model } : {}),
+      ...(effort ? { reasoningEffort: effort } : {}),
+      combo: preset.combo,
+      ...(message ? { message } : {}),
+    });
   },
 
   async applyPresetToSession(sessionId, preset) {
