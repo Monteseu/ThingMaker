@@ -1638,6 +1638,18 @@ export type NotificationSettings = {
   keepAwakeOnBattery: boolean;
 };
 
+/** What Wipe All removed from this computer. */
+export type WipeReport = {
+  claudeSessions: number;
+  codexSessions: number;
+  filesRemoved: number;
+  historyLinesRemoved: number;
+  /** Codex threads Codex itself confirmed deleting. */
+  codexDeletedByCodex: number;
+  /** What could not be removed, in words. */
+  problems: string[];
+};
+
 /** A provider program's version and how it is kept current. */
 export type ProviderVersion = {
   provider: Provider;
@@ -1910,6 +1922,7 @@ export const COMMANDS = {
   generatedImage: "generated_image",
   localImage: "local_image",
   workspaceRemove: "workspace_remove",
+  workspaceWipeSessions: "workspace_wipe_sessions",
   attachmentPick: "attachment_pick",
   attachmentAddPaths: "attachment_add_paths",
   attachmentAddBytes: "attachment_add_bytes",

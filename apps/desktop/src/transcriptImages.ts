@@ -32,6 +32,21 @@ const RELATIVE = /(?:^|[\s"'`(\[*])((?:\.\/)?(?:[\w.@+-]+\/)*[\w.@+-]+\.(?:png|j
 // whose last part has no extension.
 const FOLDER = /(?:^|[\s"'`(\[*])(~?\/(?:[\w.@+-]+\/)*[\w@+-]+\/?)(?![\w.@+/-])/g;
 
+// Codex's image tool saves under its home's `generated_images`: `~/.codex`, or
+// an extra account's home that ThingMaker keeps under `accounts/codex/<id>`.
+const GENERATED = /\/(?:\.codex|accounts\/codex\/[^/]+)\/generated_images\//;
+
+/**
+ * The image an image tool reports it saved, read from its output rather than
+ * scanned for in text: the path can hold spaces ("Application Support"),
+ * which a path in prose cannot.
+ */
+export function savedImage(patch: ToolPatch, root: string): ImageRef | null {
+  const output = patch.rawOutput;
+  const saved = output && typeof output === "object" ? (output as { savedPath?: unknown }).savedPath : undefined;
+  return typeof saved === "string" && saved ? imageRefFor(saved, root) : null;
+}
+
 export function keyOf(ref: ImageRef): string {
   return ref.kind === "workspace" ? `w:${ref.relative}` : ref.kind === "generated" ? `g:${ref.path}` : `l:${ref.path}`;
 }
@@ -43,7 +58,7 @@ export function imageRefFor(path: string, root: string, reach: Reach = {}): Imag
   if (clean.startsWith("/") || clean.startsWith("~/")) {
     const base = root.replace(/\/+$/, "");
     if (base && clean.startsWith(`${base}/`)) return { kind: "workspace", relative: clean.slice(base.length + 1) };
-    if (/\/\.codex\/generated_images\//.test(clean)) return { kind: "generated", path: clean };
+    if (GENERATED.test(clean)) return { kind: "generated", path: clean };
     if (reach.outside && !clean.split("/").includes("..")) return { kind: "local", path: clean };
     return null;
   }
@@ -164,7 +179,15 @@ export function assignImages(cards: Card[], tools: Map<string, ToolPatch>, root:
     } else if (card.kind === "tool") {
       const patch = tools.get(card.toolCallId);
       if (!patch || !showsImages(patch)) continue;
-      take(card.key, cached(patch, () => imageRefsIn([textOf(patch.rawInput, 8_000), textOf(patch.rawOutput), textOf(patch.content)].join("\n"), root)));
+      take(card.key, cached(patch, () => {
+        const saved = savedImage(patch, root);
+        const named = imageRefsIn([textOf(patch.rawInput, 8_000), textOf(patch.rawOutput), textOf(patch.content)].join("\n"), root);
+        if (!saved) return named;
+        // The same file again, or the tail of its path after a space read as
+        // a workspace path of its own.
+        const path = saved.kind === "workspace" ? saved.relative : saved.path;
+        return [saved, ...named.filter((ref) => keyOf(ref) !== keyOf(saved) && !(ref.kind === "workspace" && path.endsWith(ref.relative)))];
+      }));
     }
   }
   return out;

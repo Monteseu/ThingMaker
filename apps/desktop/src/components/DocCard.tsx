@@ -16,7 +16,7 @@ import { IconDoc, IconExternal, IconFolder, IconSummit, IconX } from "./icons";
 /** Lines read for the card; the viewer reads the whole file. */
 const PREVIEW_LINES = 80;
 /** Lines rendered while the card is folded. */
-const FOLDED_LINES = 14;
+const FOLDED_LINES = 8;
 
 function size(bytes: number): string {
   return bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;

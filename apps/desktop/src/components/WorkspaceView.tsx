@@ -8,6 +8,7 @@ import { PROVIDERS, PROVIDER_LABELS, parseLocalModel, type Provider, type Sessio
 import { startingProvider, useStore } from "../store";
 import { api } from "../ipc";
 import { OutboxPanel } from "./OutboxPanel";
+import { WipeDialog } from "./WipeDialog";
 import { ProviderMark } from "./ProviderMark";
 import { relative, RowMenu, type Row } from "./Sidebar";
 import { IconArrowUp, IconBranch, IconCheck, IconChevron, IconDots } from "./icons";
@@ -59,6 +60,7 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }) {
   const removeWorkspace = useStore((s) => s.removeWorkspace);
   const setError = useStore((s) => s.setError);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [wiping, setWiping] = useState(false);
   const closeMenu = useMemo(() => () => setMenuOpen(false), []);
   const menu = useDismiss(menuOpen, closeMenu);
 
@@ -121,6 +123,9 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }) {
               <button className="context-item" onClick={act(() => void inspectWorkspace(workspaceId))} role="menuitem" type="button">
                 {t("Re-check agent setup")}
               </button>
+              <button className="context-item context-item-danger" onClick={act(() => setWiping(true))} role="menuitem" type="button">
+                {t("Wipe all sessions…")}
+              </button>
               <button className="context-item" onClick={act(() => void removeWorkspace(workspaceId))} role="menuitem" type="button">
                 {t("Remove from ThingMaker")}
               </button>
@@ -128,6 +133,8 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }) {
           )}
         </div>
       </header>
+
+      {wiping && <WipeDialog name={name} onClose={() => setWiping(false)} workspaceId={workspaceId} />}
 
       <StartBox name={name} trusted={trusted} workspaceId={workspaceId} />
 

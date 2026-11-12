@@ -7,6 +7,8 @@ import { useStore, sessionTitle, basenameOf as basename } from "../store";
 import { api } from "../ipc";
 import { ProviderBadge } from "./ProviderMark";
 import { UsageMeter } from "./UsageMeter";
+import { ProviderLogo } from "./ProviderLogo";
+import { WipeDialog } from "./WipeDialog";
 import { t } from "../i18n";
 import {
   IconChevron,
@@ -228,6 +230,47 @@ function SessionRow({
 }
 
 /** Right-click (or the ⋯ action) menu for one session row. */
+/** A project's right-click menu. */
+function ProjectMenu({ workspaceId, at, onClose, onWipe, onRemove }: { workspaceId: string; at: { x: number; y: number }; onClose: () => void; onWipe: () => void; onRemove: () => void }) {
+  const root = useStore((s) => s.workspaces.find((workspace) => workspace.id === workspaceId)?.canonicalRoot);
+  const setError = useStore((s) => s.setError);
+  const menu = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    menu.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    const onDown = (event: MouseEvent) => {
+      if (!menu.current?.contains(event.target as Node)) onClose();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("mousedown", onDown, true);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown, true);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+  const act = (run: () => void) => () => {
+    run();
+    onClose();
+  };
+  return (
+    <div className="context-menu" ref={menu} role="menu" style={{ left: Math.min(at.x, window.innerWidth - 220), top: Math.min(at.y, window.innerHeight - 130) }}>
+      {root && (
+        <button className="context-item" onClick={act(() => void api.revealInFinder(root).catch(setError))} role="menuitem" type="button">
+          {t("Open folder")}
+        </button>
+      )}
+      <button className="context-item context-item-danger" onClick={act(onWipe)} role="menuitem" title={t("Permanently delete every Claude Code and Codex session ThingMaker ran in this project, from this computer")} type="button">
+        {t("Wipe all sessions…")}
+      </button>
+      <button className="context-item" onClick={act(onRemove)} role="menuitem" type="button">
+        {t("Remove from ThingMaker…")}
+      </button>
+    </div>
+  );
+}
+
 export function RowMenu({ row, at, onClose, onRename, parentLabel }: { row: Row; at: { x: number; y: number }; onClose: () => void; onRename?: () => void; parentLabel: string | null }) {
   const pinSession = useStore((s) => s.pinSession);
   const archiveSession = useStore((s) => s.archiveSession);
@@ -427,9 +470,26 @@ export function Sidebar() {
   const setView = useStore((s) => s.setView);
   const loadProviders = useStore((s) => s.loadProviders);
   const updatesOut = useStore((s) => Object.values(s.providerVersions ?? {}).filter((version) => version?.updateAvailable).length);
+  // The dot is news: once the Providers page has been opened it goes, until
+  // a release that has not been seen there comes out.
+  const updateKeys = useStore((s) =>
+    Object.values(s.providerVersions ?? {})
+      .filter((version) => version?.updateAvailable)
+      .map((version) => `${version!.provider}@${version!.latest ?? "?"}`)
+      .sort()
+      .join(" "),
+  );
+  const [seenUpdates, setSeenUpdates] = useState<string[]>(() => remembered("thingmaker.providers.updatesSeen", []));
+  const unseenUpdate = updateKeys.split(" ").some((key) => key && !seenUpdates.includes(key));
   const loadSettings = useStore((s) => s.loadSettings);
   const providers = useStore((s) => s.providers);
   const usage = useStore((s) => s.usage);
+  useEffect(() => {
+    if (view.kind !== "signin" || !unseenUpdate) return;
+    const seen = updateKeys.split(" ").filter(Boolean);
+    setSeenUpdates(seen);
+    remember("thingmaker.providers.updatesSeen", seen);
+  }, [view.kind, unseenUpdate, updateKeys]);
   // Folded workspaces, and the Pinned group, stay folded across restarts.
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => remembered("thingmaker.sidebar.collapsed", {}));
   const [pinnedCollapsed, setPinnedCollapsed] = useState(() => remembered("thingmaker.sidebar.pinnedCollapsed", false));
@@ -490,6 +550,8 @@ export function Sidebar() {
   const renameSession = useStore((s) => s.renameSession);
   const removeWorkspace = useStore((s) => s.removeWorkspace);
   const [removing, setRemoving] = useState<{ id: string; name: string; live: number } | null>(null);
+  const [wiping, setWiping] = useState<{ id: string; name: string } | null>(null);
+  const [projectMenu, setProjectMenu] = useState<{ id: string; name: string; live: number; at: { x: number; y: number } } | null>(null);
 
   /** Rows per workspace, so the pinned group can be assembled across them. */
   const groups = workspaces.map((workspace) => {
@@ -638,7 +700,14 @@ export function Sidebar() {
           const isCollapsed = collapsed[workspace.id] ?? false;
           return (
             <section className="ws-group" key={workspace.id}>
-              <div className={`ws-header ${selected ? "selected" : ""}`}>
+              <div
+                className={`ws-header ${selected ? "selected" : ""}`}
+                onContextMenu={(event) => {
+                  if (IS_REMOTE) return;
+                  event.preventDefault();
+                  setProjectMenu({ id: workspace.id, name: project, live: liveCount, at: { x: event.clientX, y: event.clientY } });
+                }}
+              >
                 <button aria-label={isCollapsed ? t("Expand") : t("Collapse")} className="icon-button icon-button-xs" onClick={() => {
                     const next = { ...collapsed, [workspace.id]: !isCollapsed };
                     setCollapsed(next);
@@ -795,6 +864,16 @@ export function Sidebar() {
         />
       )}
 
+      {projectMenu && (
+        <ProjectMenu
+          at={projectMenu.at}
+          onClose={() => setProjectMenu(null)}
+          onRemove={() => setRemoving({ id: projectMenu.id, name: projectMenu.name, live: projectMenu.live })}
+          onWipe={() => setWiping({ id: projectMenu.id, name: projectMenu.name })}
+          workspaceId={projectMenu.id}
+        />
+      )}
+      {wiping && <WipeDialog name={wiping.name} onClose={() => setWiping(null)} workspaceId={wiping.id} />}
       {removing && (
         <div aria-modal="true" className="modal-backdrop" role="dialog">
           <div className="modal">
@@ -844,7 +923,7 @@ export function Sidebar() {
               const second = columns === 2 ? windows[row * columns + 1] : undefined;
               return (
                 <div className={`sidebar-meter-row ${columns === 1 ? "sidebar-meter-row-model" : ""}`} key={`${provider}-${row}`} title={snapshot.limitReached ? `${title} · ${t("limit reached")}` : title}>
-                  <span className={`sidebar-meter-name ${snapshot.limitReached ? "chip-warn-text" : ""}`}>{row === 0 ? PROVIDER_LABELS[provider] : ""}</span>
+                  <span className={`sidebar-meter-name ${snapshot.limitReached ? "sidebar-meter-limit" : ""}`}>{row === 0 && <ProviderLogo provider={provider} size={16} />}</span>
                   <UsageMeter usage={first} />
                   {columns === 2 && (second ? <UsageMeter usage={second} /> : <span />)}
                 </div>
@@ -870,7 +949,7 @@ export function Sidebar() {
             type="button"
           >
             <IconKey />
-            {updatesOut > 0 && <span aria-label={t("update available")} className="badge-dot" />}
+            {unseenUpdate && <span aria-label={t("update available")} className="badge-dot" />}
           </button>
           <button
             className={`icon-button ${view.kind === "teams" ? "on" : ""}`}

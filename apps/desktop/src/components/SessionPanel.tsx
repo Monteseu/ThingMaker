@@ -32,6 +32,7 @@ import { remoteFull } from "../toolImages";
 import { Markdown, type PathHandler } from "../markdown";
 import { copiesItself, forkPointAt, splitNestedReports } from "../fork";
 import { isLocalChat } from "../localModels";
+import { ContextRing } from "./ContextRing";
 import { LocalBadge } from "./LocalBadge";
 import { hasConversation } from "../team";
 import { NestedBanner, NestedReportsCard, NestedReportsStrip } from "./NestedSessions";
@@ -1404,6 +1405,7 @@ export function SessionPanel({ sessionId }: { sessionId: string }) {
           >
             <IconPaperclip />
           </button>
+          <ContextRing sessionId={sessionId} />
           <ConfigPickers configOptions={configOptions} disabled={projection.process === "exited" || busy !== null} sessionId={sessionId} />
           {!configOptions && <span className="chip small">{t("the account's default model")}</span>}
           {!localChat && <TeamChip disabled={projection.process === "exited"} sessionId={sessionId} />}

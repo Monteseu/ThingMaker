@@ -117,3 +117,26 @@ describe("scanning stays cheap on a long transcript", () => {
     expect(assignImages(cards, tools, ROOT).get("c")).toEqual([{ kind: "workspace", relative: "b.png" }]);
   });
 });
+
+describe("an image tool's saved file", () => {
+  const SAVED = "/Users/me/Library/Application Support/dev.thingmaker.desktop/accounts/codex/acct-6d/generated_images/01a1/exec-e7.png";
+  const patch = (savedPath: string): ToolPatch =>
+    ({ toolCallId: "ig", title: "Generate image", status: "completed", toolKind: "other", name: "image_generation", content: null, rawInput: { prompt: "a wizard" }, rawOutput: { savedPath, revisedPrompt: "a wizard" }, locations: [{ path: savedPath }], meta: null, present: [], cleared: [] }) as ToolPatch;
+  const card = { kind: "tool", key: "k-ig", toolCallId: "ig" } as unknown as Card;
+
+  it("shows under the tool call, from an extra Codex account's home with a space in its path", () => {
+    const images = assignImages([card], new Map([["ig", patch(SAVED)]]), ROOT);
+    expect(images.get("k-ig")).toEqual([{ kind: "generated", path: SAVED }]);
+  });
+
+  it("is read from the workspace when it was saved there", () => {
+    const images = assignImages([card], new Map([["ig", patch(`${ROOT}/art/wizard.png`)]]), ROOT);
+    expect(images.get("k-ig")).toEqual([{ kind: "workspace", relative: "art/wizard.png" }]);
+  });
+
+  it("knows the default Codex home and extra accounts' homes as generated images", () => {
+    expect(imageRefFor(GENERATED, ROOT)).toEqual({ kind: "generated", path: GENERATED });
+    expect(imageRefFor("/d/accounts/codex/acct-1/generated_images/t/x.png", ROOT)).toEqual({ kind: "generated", path: "/d/accounts/codex/acct-1/generated_images/t/x.png" });
+    expect(imageRefFor("/d/accounts/claude/acct-1/generated_images/t/x.png", ROOT)).toBeNull();
+  });
+});

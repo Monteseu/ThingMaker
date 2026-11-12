@@ -196,6 +196,7 @@ pub fn run() {
             commands::workspace::reveal_in_finder,
             commands::workspace::reveal_path,
             commands::workspace::quick_look,
+            commands::wipe::workspace_wipe_sessions,
             remote::remote_status,
             remote::remote_set_enabled,
             remote::remote_pair_start,

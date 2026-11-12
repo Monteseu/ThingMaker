@@ -1077,6 +1077,7 @@ impl ActorState {
         self.last_progress = Instant::now();
         let update = match update {
             SessionUpdate::ConfigOptions { config_options } => SessionUpdate::ConfigOptions { config_options: self.shape_options(config_options) },
+            SessionUpdate::Usage(usage) => SessionUpdate::Usage(local_window(&self.launch, usage)),
             other => other,
         };
         match &update {
@@ -2373,6 +2374,17 @@ pub fn content_blocks_to_values(blocks: &[ContentBlock]) -> Vec<Value> {
         .collect()
 }
 
+/// A local agent's context size is the window ThingMaker served the model
+/// with. Claude Code does not know a local model and reports a guess.
+fn local_window(launch: &AgentLaunch, mut usage: crate::acp::updates::UsageUpdate) -> crate::acp::updates::UsageUpdate {
+    if let AgentLaunch::Claude(launch) = launch
+        && let Some(local) = launch.local.as_ref()
+    {
+        usage.size = Some(local.window);
+    }
+    usage
+}
+
 fn shape_local_options(launch: &AgentLaunch, options: Value) -> Value {
     let AgentLaunch::Claude(launch) = launch else { return options };
     let Some(local) = launch.local.as_ref().filter(|local| local.kind == crate::agents::local::LocalKind::Agent) else { return options };
@@ -2448,5 +2460,17 @@ mod task_list_tests {
         assert_eq!(shaped[1]["currentValue"], json!("qwen3:8b"));
         let claude = AgentLaunch::Claude(crate::agents::claude::launch::ClaudeLaunchOptions::new("/w", "/usr/bin/node", vec!["adapter.js".into()]));
         assert_eq!(shape_local_options(&claude, advertised.clone()), advertised, "Claude's own sessions are untouched");
+    }
+
+    #[test]
+    fn a_local_agents_context_size_is_the_window_it_was_served_with() {
+        use crate::acp::updates::UsageUpdate;
+        use crate::agents::local::{LocalKind, LocalTarget};
+        let mut options = crate::agents::claude::launch::ClaudeLaunchOptions::new("/w", "/usr/bin/node", vec!["adapter.js".into()]);
+        options.local = Some(LocalTarget { kind: LocalKind::Agent, model: "qwen3:8b".into(), served: "qwen3:8b-thingmaker-16k".into(), window: 16384, home: "/d".into() });
+        let reported = UsageUpdate { used: Some(9000), size: Some(200_000), meta: None };
+        assert_eq!(local_window(&AgentLaunch::Claude(options), reported.clone()).size, Some(16384));
+        let claude = AgentLaunch::Claude(crate::agents::claude::launch::ClaudeLaunchOptions::new("/w", "/usr/bin/node", vec!["adapter.js".into()]));
+        assert_eq!(local_window(&claude, reported).size, Some(200_000), "Claude's own sessions keep what they report");
     }
 }

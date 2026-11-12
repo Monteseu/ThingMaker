@@ -25,6 +25,8 @@ import { buildCrew, elapsed } from "./crew";
 /** The lead stands a size bigger than its helpers. */
 const LEAD_SIZE = 38;
 const HELPER_SIZE = 30;
+/** On the desktop the Office shows the detail, so the robots here are small. */
+const DESK_SCALE = 0.72;
 
 /** How many robots the row shows before it says "+n". */
 const CREW_LIMIT = 8;
@@ -126,6 +128,29 @@ export function ActivityBar({ sessionId, onOpenAgents }: { sessionId: string; on
   // subagents, which run on the lead's provider.
   const crew = buildCrew({ provider: session.snapshot.provider, foreground, phase, jobs, team, agents, now });
   const shown = crew.slice(0, CREW_LIMIT);
+
+  // On the desktop the Office has the whole picture, so this is only who is
+  // at work right now: their robots standing on the prompt box, no words.
+  if (!IS_REMOTE) {
+    const working = stale ? [] : crew.filter((member) => member.state === "working").slice(0, CREW_LIMIT);
+    if (working.length === 0) return null;
+    return (
+      <div className="activity-desk" role="status">
+        <button aria-label={t("Who is working")} className="activity-desk-crew" onClick={onOpenAgents} title={t("Open Agents")} type="button">
+          {working.map((member) => (
+            <span className="crew-member" key={member.key} title={`${member.name} · ${member.status}`}>
+              <TinyBot
+                provider={member.provider}
+                role={member.role}
+                size={Math.round((member.role === "lead" ? LEAD_SIZE : HELPER_SIZE) * DESK_SCALE)}
+                state={member.state}
+              />
+            </span>
+          ))}
+        </button>
+      </div>
+    );
+  }
 
   const lastRuntime = [...projection.cards].reverse().find((c) => c.kind === "runtime");
   const detail = runningTools.length > 0 || agents.length > 0;

@@ -397,6 +397,33 @@ impl Storage {
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
+    /// Forgets sessions for good: their rows and everything kept about them
+    /// (unsent prompts, projection generations, review baselines, drafts,
+    /// artifact records). Returns the outbox payload files the prompts were
+    /// kept in, for the caller to delete. A Big Thing that ran in one stays,
+    /// detached from it.
+    pub fn sessions_delete(&self, workspace_id: &str, ids: &[String]) -> Result<Vec<String>, StorageError> {
+        let transaction = self.conn().unchecked_transaction()?;
+        let mut payloads = Vec::new();
+        for id in ids {
+            let agent_id: Option<String> = transaction
+                .query_row("SELECT agent_session_id FROM sessions WHERE id = ?1 AND workspace_id = ?2", params![id, workspace_id], |row| row.get(0))
+                .optional()?;
+            let Some(agent_id) = agent_id else { continue };
+            {
+                let mut statement = transaction.prepare("SELECT payload_ref FROM submission_outbox WHERE session_id = ?1")?;
+                payloads.extend(statement.query_map(params![id], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?);
+            }
+            transaction.execute("DELETE FROM submission_outbox WHERE session_id = ?1", params![id])?;
+            transaction.execute("DELETE FROM projection_generations WHERE session_id = ?1", params![id])?;
+            transaction.execute("DELETE FROM review_baselines WHERE session_id = ?1", params![id])?;
+            transaction.execute("DELETE FROM artifacts WHERE workspace_id = ?1 AND agent_session_id = ?2", params![workspace_id, agent_id])?;
+            transaction.execute("DELETE FROM sessions WHERE id = ?1", params![id])?;
+        }
+        transaction.commit()?;
+        Ok(payloads)
+    }
+
     pub fn session_set_archive(&self, id: &str, state: ArchiveState) -> Result<(), StorageError> {
         let changed = self.conn().execute(
             "UPDATE sessions SET archive_state = ?2 WHERE id = ?1",
@@ -458,6 +485,29 @@ impl Storage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deleted_sessions_take_their_unsent_prompts_and_nothing_else() {
+        let storage = Storage::open_in_memory().unwrap();
+        let workspace = storage.workspace_upsert("/p", "~/p", "w-1").unwrap();
+        let gone = storage.session_upsert(&workspace.id, "agent-gone", SessionOrigin::Desktop, Provider::Claude).unwrap();
+        let kept = storage.session_upsert(&workspace.id, "agent-kept", SessionOrigin::Desktop, Provider::Codex).unwrap();
+        storage.outbox_insert("r1", &gone.id, "h", "outbox/r1.json", crate::ids::DecimalId(1)).unwrap();
+        storage.outbox_insert("r2", &kept.id, "h", "outbox/r2.json", crate::ids::DecimalId(1)).unwrap();
+
+        let payloads = storage.sessions_delete(&workspace.id, std::slice::from_ref(&gone.id)).unwrap();
+
+        assert_eq!(payloads, vec!["outbox/r1.json".to_string()]);
+        assert!(storage.session_get(&gone.id).unwrap().is_none());
+        assert!(storage.outbox_get("r1").unwrap().is_none());
+        assert!(storage.session_get(&kept.id).unwrap().is_some());
+        assert!(storage.outbox_get("r2").unwrap().is_some());
+        // A session of another workspace is not reachable through this one.
+        let other = storage.workspace_upsert("/q", "~/q", "w-2").unwrap();
+        let theirs = storage.session_upsert(&other.id, "agent-theirs", SessionOrigin::Desktop, Provider::Claude).unwrap();
+        storage.sessions_delete(&workspace.id, std::slice::from_ref(&theirs.id)).unwrap();
+        assert!(storage.session_get(&theirs.id).unwrap().is_some());
+    }
 
     #[test]
     fn workspaces_are_unique_by_root_and_record_trust() {

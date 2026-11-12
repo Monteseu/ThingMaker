@@ -14,7 +14,7 @@ import { t } from "../i18n";
 import { api } from "../ipc";
 import { useStore } from "../store";
 import type { EditedFile, TestRun } from "../toolSummary";
-import { IconAlertCircle, IconCheckCircle, IconCode } from "./icons";
+import { IconAlertCircle, IconCheckCircle, IconChevron, IconCode } from "./icons";
 
 function signedCounts(additions: number, deletions: number) {
   return (
@@ -65,7 +65,6 @@ function FilePath({ path, title }: { path: string; title?: string }) {
 }
 
 /** How many file rows to show before collapsing the tail into a count. */
-const FILE_LIMIT = 8;
 
 /**
  * Files the session's latest prompt has changed, against a snapshot of the
@@ -101,12 +100,11 @@ export function CodeChangesCard({ workspaceId, sessionId, refreshKey }: { worksp
 
   const additions = report.files.reduce((sum, file) => sum + file.additions, 0);
   const deletions = report.files.reduce((sum, file) => sum + file.deletions, 0);
-  const shown = expanded ? report.files : report.files.slice(0, FILE_LIMIT);
-  const hidden = report.files.length - shown.length;
 
+  // Folded to its one line by default: the whole line opens it.
   return (
-    <section className="card work-card">
-      <header className="work-head">
+    <section className={`card work-card work-card-foldable ${expanded ? "work-card-open" : ""}`}>
+      <header className="work-head" onClick={() => setExpanded(!expanded)}>
         <span className="work-glyph">
           <IconCode size={14} />
         </span>
@@ -115,12 +113,33 @@ export function CodeChangesCard({ workspaceId, sessionId, refreshKey }: { worksp
           {report.files.length === 1 ? t("{n} file changed", { n: report.files.length }) : t("{n} files changed", { n: report.files.length })}
         </span>
         <span className="work-counts">{signedCounts(additions, deletions)}</span>
-        <button className="button button-small" onClick={() => useStore.setState({ sessionTab: "changes", changesFocus: "turn" })} type="button">
+        <button
+          className="button button-small"
+          onClick={(event) => {
+            event.stopPropagation();
+            useStore.setState({ sessionTab: "changes", changesFocus: "turn" });
+          }}
+          type="button"
+        >
           {t("View diff")}
         </button>
+        <button
+          aria-expanded={expanded}
+          aria-label={expanded ? t("Hide the changed files") : t("Show the changed files")}
+          className="icon-button icon-button-xs work-fold"
+          onClick={(event) => {
+            event.stopPropagation();
+            setExpanded(!expanded);
+          }}
+          type="button"
+        >
+          <IconChevron open={expanded} size={14} />
+        </button>
       </header>
+      {expanded && (
+      <>
       <ul className="work-files">
-        {shown.map((file) => (
+        {report.files.map((file) => (
           <li key={file.path}>
             <span className={`file-kind kind-${file.kind}`} title={kindWord(file.kind)}>
               {KIND_MARK[file.kind] ?? "?"}
@@ -129,18 +148,13 @@ export function CodeChangesCard({ workspaceId, sessionId, refreshKey }: { worksp
             <span className="work-counts">{file.binary ? <span className="muted">{t("binary")}</span> : signedCounts(file.additions, file.deletions)}</span>
           </li>
         ))}
-        {hidden > 0 && (
-          <li>
-            <button className="link small" onClick={() => setExpanded(true)} type="button">
-              {hidden === 1 ? t("{n} more file", { n: hidden }) : t("{n} more files", { n: hidden })}
-            </button>
-          </li>
-        )}
       </ul>
       <p className="work-foot small muted">
         {t("Since the last prompt was sent")}
         {report.truncated ? ` · ${t("truncated by the diff limits")}` : ""}
       </p>
+      </>
+      )}
     </section>
   );
 }

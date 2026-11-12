@@ -526,6 +526,9 @@ export const session: Record<string, string> = {
   "stopped": "detenido",
   "On the team, with nothing to do yet": "En el equipo, sin nada que hacer todavía",
   "Who is working": "Quién está trabajando",
+  "Open Agents": "Abrir Agentes",
+  "Show the changed files": "Mostrar los archivos cambiados",
+  "Hide the changed files": "Ocultar los archivos cambiados",
   "Resize the office": "Cambiar el ancho de la oficina",
   "Drag to resize; double-click for the usual width": "Arrastra para cambiar el ancho; doble clic para el ancho habitual",
   "A document is waiting for you in Big Thing": "Hay un documento esperándote en Big Thing",
@@ -556,4 +559,13 @@ export const session: Record<string, string> = {
   "Setting up the office…": "Montando la oficina…",
   "You can write now. Your message will be sent when everything is ready.": "Ya puedes escribir. Tu mensaje se enviará cuando esté todo listo.",
   "Sends as soon as {provider} is ready": "Se envía en cuanto {provider} esté listo",
+  // Context ring
+  "Instructions, tools and conversation": "Instrucciones, herramientas y conversación",
+  "Last reply": "Última respuesta",
+  "Everything the agent's last request carried: its instructions, tool definitions, files it read and the conversation so far": "Todo lo que llevó la última petición del agente: sus instrucciones, las definiciones de herramientas, los archivos que leyó y la conversación hasta ahora",
+  "What the agent wrote in its last reply, thinking included": "Lo que escribió el agente en su última respuesta, razonamiento incluido",
+  "Context: {percent}% used": "Contexto: {percent}% usado",
+  "Context: {used} of {size} ({percent}%)": "Contexto: {used} de {size} ({percent}%)",
+  "{percent}% used": "{percent}% usado",
+  "Free space": "Espacio libre",
 };

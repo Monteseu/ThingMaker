@@ -56,6 +56,9 @@ const LOCAL: Record<string, (args: Args) => Promise<unknown>> = {
   async reveal_in_finder() {
     return notOnThePhone("Showing a file in its folder");
   },
+  async workspace_wipe_sessions() {
+    return notOnThePhone("Wiping a project's sessions");
+  },
   async reveal_path() {
     return notOnThePhone("Showing a file in its folder");
   },

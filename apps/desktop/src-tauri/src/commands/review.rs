@@ -353,19 +353,35 @@ pub fn workspace_image(workspace_id: String, relative: String, state: State<'_, 
 /// An image Codex's image tool saved, for inline display in the transcript.
 ///
 /// Codex keeps generated images under `$CODEX_HOME/generated_images`, outside
-/// any workspace. Only files inside that directory are read, after resolving
-/// links, with the same checks as a workspace image.
+/// any workspace: the default home, or an extra account's own home under
+/// ThingMaker's data folder. Only files inside one of those directories are
+/// read, after resolving links, with the same checks as a workspace image.
 #[tauri::command]
 pub fn generated_image(path: String, state: State<'_, AppState>) -> CommandResult<WorkspaceImage> {
     let home = state.home.clone().ok_or_else(|| DesktopError::not_ready("HOME is not set"))?;
     let codex_home = std::env::var_os("CODEX_HOME").map(std::path::PathBuf::from).unwrap_or_else(|| home.join(".codex"));
-    let allowed = std::fs::canonicalize(codex_home.join("generated_images")).map_err(|_| DesktopError::not_ready("Codex has not generated any images here"))?;
     let resolved = std::fs::canonicalize(&path).map_err(|e| DesktopError::io(format!("{path}: {e}")))?;
-    if !resolved.starts_with(&allowed) {
+    let accounts = state.data_dir.join("accounts").join("codex");
+    if !is_generated_image(&resolved, &codex_home, &accounts) {
         return Err(DesktopError::untrusted("only images Codex generated can be read outside the workspace"));
     }
     let label = resolved.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or(path);
     read_image(&resolved, label)
+}
+
+/// Whether a resolved path is inside Codex's `generated_images`: the default
+/// home's, or that of one of the extra accounts kept under `accounts`.
+fn is_generated_image(resolved: &Path, codex_home: &Path, accounts: &Path) -> bool {
+    if let Ok(allowed) = std::fs::canonicalize(codex_home.join("generated_images"))
+        && resolved.starts_with(&allowed)
+    {
+        return true;
+    }
+    let Ok(accounts) = std::fs::canonicalize(accounts) else { return false };
+    let Ok(rest) = resolved.strip_prefix(&accounts) else { return false };
+    let mut parts = rest.components();
+    // <account id>/generated_images/…
+    matches!((parts.next(), parts.next()), (Some(std::path::Component::Normal(_)), Some(std::path::Component::Normal(name))) if name == "generated_images")
 }
 
 /// An image an agent named by absolute (or `~/`) path in its reply, outside
@@ -460,5 +476,29 @@ mod turn_snapshot_tests {
         assert_eq!(manifest.files["file.txt"].hash, BlobStore::hash(b"next prompt"));
         assert!(blobs(&state).get(&BlobStore::hash(b"intermediate edit")).unwrap().is_none());
         assert!(state.with_storage(|s| s.baseline_get(&baseline.id)).unwrap().is_none());
+    }
+}
+
+#[cfg(test)]
+mod generated_image_tests {
+    use super::*;
+
+    #[test]
+    fn generated_images_are_read_from_any_codex_accounts_home() {
+        let temp = tempfile::tempdir().unwrap();
+        let codex_home = temp.path().join("dot-codex");
+        let accounts = temp.path().join("data/accounts/codex");
+        let default_image = codex_home.join("generated_images/t1/a.png");
+        let account_image = accounts.join("acct-1/generated_images/t2/b.png");
+        let elsewhere = accounts.join("acct-1/sessions/c.png");
+        for file in [&default_image, &account_image, &elsewhere] {
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, b"x").unwrap();
+        }
+        let resolve = |path: &Path| std::fs::canonicalize(path).unwrap();
+        assert!(is_generated_image(&resolve(&default_image), &codex_home, &accounts));
+        assert!(is_generated_image(&resolve(&account_image), &codex_home, &accounts));
+        assert!(!is_generated_image(&resolve(&elsewhere), &codex_home, &accounts));
+        assert!(!is_generated_image(&resolve(temp.path()), &codex_home, &accounts));
     }
 }

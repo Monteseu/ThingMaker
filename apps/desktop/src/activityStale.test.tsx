@@ -5,7 +5,7 @@
  * so the strip claimed "Working in the background · 196m · 1 child process"
  * for a process that had exited hours earlier. It cannot know the work is
  * gone — but it does know the session has said nothing, and that is what it
- * should say.
+ * should say. This is the phone's strip; the desktop's is in activityDesk.test.
  */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,6 +20,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   },
 }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => () => undefined) }));
+vi.mock("./remote/mode", () => ({ IS_REMOTE: true }));
 
 import { EMPTY_SESSION_USAGE, useStore, type LiveSession } from "./store";
 import { emptyProjection } from "./projection";
@@ -70,19 +71,6 @@ beforeEach(() => useStore.setState({ sessions: {}, jobs: {} }));
 afterEach(cleanup);
 
 describe("work the session has gone quiet about", () => {
-  it("keeps the desktop panel visible regardless of the phone preference", () => {
-    localStorage.setItem("thingmaker.phone.activityCollapsed", "true");
-    try {
-      seed(30_000);
-      render(<ActivityBar onOpenAgents={() => undefined} sessionId={SESSION} />);
-      expect(screen.getByRole("list", { name: "Who is working" })).toBeTruthy();
-      expect(screen.queryByRole("button", { name: "Hide team activity" })).toBeNull();
-      expect(screen.queryByRole("button", { name: "Show team activity" })).toBeNull();
-    } finally {
-      localStorage.removeItem("thingmaker.phone.activityCollapsed");
-    }
-  });
-
   it("reports it as running while the session is still talking", () => {
     seed(30_000);
     render(<ActivityBar onOpenAgents={() => undefined} sessionId={SESSION} />);
