@@ -56,6 +56,12 @@ const LOCAL: Record<string, (args: Args) => Promise<unknown>> = {
   async reveal_in_finder() {
     return notOnThePhone("Showing a file in its folder");
   },
+  async reveal_path() {
+    return notOnThePhone("Showing a file in its folder");
+  },
+  async quick_look() {
+    return notOnThePhone("Previewing a file");
+  },
   async open_in_editor() {
     return notOnThePhone("Opening a file in an editor");
   },

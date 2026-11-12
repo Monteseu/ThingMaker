@@ -530,6 +530,8 @@ export const session: Record<string, string> = {
   "Drag to resize; double-click for the usual width": "Arrastra para cambiar el ancho; doble clic para el ancho habitual",
   "A document is waiting for you in Big Thing": "Hay un documento esperándote en Big Thing",
   "Open {url} in your browser": "Abrir {url} en tu navegador",
+  "Show {path} in Finder": "Mostrar {path} en el Finder",
+  "Preview {path}": "Previsualizar {path}",
   "Artifact": "Artefacto",
   "Starts a new session from this point, briefed on the conversation so far: {provider} cannot copy part of a conversation. This one stays as it is.": "Empieza una sesión nueva desde este punto, con un resumen de la conversación hasta aquí: {provider} no puede copiar parte de una conversación. Esta se queda como está.",
   "Starts a new session from this point. This one stays as it is.": "Empieza una sesión nueva desde este punto. Esta se queda como está.",

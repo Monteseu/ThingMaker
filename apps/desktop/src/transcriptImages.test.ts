@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import type { ToolPatch } from "@thingmaker/contracts";
 import type { Card } from "./projection";
-import { assignImages, imageRefFor, imageRefsIn, textOf } from "./transcriptImages";
+import { assignImages, foldersIn, imageRefFor, imageRefsIn, textOf } from "./transcriptImages";
 
 const ROOT = "/Users/me/Project";
 const GENERATED = "/Users/me/.codex/generated_images/01a0f675/exec-bd6f.png";
@@ -25,6 +25,36 @@ describe("finding images by path", () => {
     expect(imageRefFor("https://example.com/x.png", ROOT)).toBeNull();
     expect(imageRefFor(`${ROOT}/notes.md`, ROOT)).toBeNull();
     expect(imageRefFor(`${ROOT}-other/x.png`, ROOT)).toBeNull();
+  });
+
+  it("reaches outside the workspace only when told to, as a local image", () => {
+    expect(imageRefFor("/Users/me/Exports/promo.png", ROOT, { outside: true })).toEqual({ kind: "local", path: "/Users/me/Exports/promo.png" });
+    expect(imageRefFor("~/Exports/promo.png", ROOT, { outside: true })).toEqual({ kind: "local", path: "~/Exports/promo.png" });
+    expect(imageRefFor("~/Exports/promo.png", ROOT)).toBeNull();
+    expect(imageRefFor("/Users/me/../etc/x.png", ROOT, { outside: true })).toBeNull();
+    // A workspace path stays a workspace image either way.
+    expect(imageRefFor(`${ROOT}/a.png`, ROOT, { outside: true })).toEqual({ kind: "workspace", relative: "a.png" });
+  });
+
+  it("looks for bare file names in the folder a reply names", () => {
+    const text = "I checked both versions. They're in ~/Projects/archive/launch/promo/:\n\n- **atlas-launch.png** (wide)\n- `atlas-launch-square.png`";
+    expect(foldersIn(text)).toEqual(["~/Projects/archive/launch/promo"]);
+    expect(imageRefsIn(text, ROOT, { outside: true })).toEqual([
+      { kind: "local", path: "~/Projects/archive/launch/promo/atlas-launch.png" },
+      { kind: "workspace", relative: "atlas-launch.png" },
+      { kind: "local", path: "~/Projects/archive/launch/promo/atlas-launch-square.png" },
+      { kind: "workspace", relative: "atlas-launch-square.png" },
+    ]);
+    // Without reach, nothing outside is looked for.
+    expect(imageRefsIn(text, ROOT)).toEqual([
+      { kind: "workspace", relative: "atlas-launch.png" },
+      { kind: "workspace", relative: "atlas-launch-square.png" },
+    ]);
+  });
+
+  it("does not take short words or image paths for folders", () => {
+    expect(foldersIn("use and/or /usr or /tmp; see /Users/me/a.png")).toEqual([]);
+    expect(foldersIn("saved to /Users/me/Exports and ~/Desktop/")).toEqual(["/Users/me/Exports", "~/Desktop"]);
   });
 
   it("finds each image in text once, in order, without reading an absolute path twice", () => {

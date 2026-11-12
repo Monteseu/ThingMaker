@@ -13,11 +13,11 @@ import type { RemoteFull } from "../toolImages";
 
 const cache = new Map<string, Promise<WorkspaceImage | null>>();
 
-export function loadWorkspaceImage(workspaceId: string, relative: string, generated?: string): Promise<WorkspaceImage | null> {
-  const key = generated ? `generated|${generated}` : `${workspaceId}|${relative}`;
+export function loadWorkspaceImage(workspaceId: string, relative: string, generated?: string, local?: string): Promise<WorkspaceImage | null> {
+  const key = local ? `local|${local}` : generated ? `generated|${generated}` : `${workspaceId}|${relative}`;
   let pending = cache.get(key);
   if (!pending) {
-    pending = (generated ? api.generatedImage(generated) : api.workspaceImage(workspaceId, relative)).catch(() => null);
+    pending = (local ? api.localImage(local) : generated ? api.generatedImage(generated) : api.workspaceImage(workspaceId, relative)).catch(() => null);
     cache.set(key, pending);
     // Images may be regenerated at the same path; forget the entry soon.
     setTimeout(() => cache.delete(key), 15_000);
@@ -165,22 +165,23 @@ export function AttachmentThumb({ id, name }: { id: string; name: string }) {
 
 /**
  * `generated` is an absolute path under Codex's `generated_images`, read
- * through its own command; otherwise `relative` is inside the workspace.
+ * through its own command; `local` is an absolute or `~/` path an agent's
+ * reply named; otherwise `relative` is inside the workspace.
  */
-export function InlineImage({ workspaceId, relative, alt, generated }: { workspaceId: string; relative: string; alt?: string; generated?: string }) {
+export function InlineImage({ workspaceId, relative, alt, generated, local }: { workspaceId: string; relative: string; alt?: string; generated?: string; local?: string }) {
   const openUrl = useStore((s) => s.openUrl);
   const [image, setImage] = useState<WorkspaceImage | null | undefined>(undefined);
   const [large, setLarge] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    loadWorkspaceImage(workspaceId, relative, generated).then((result) => {
+    loadWorkspaceImage(workspaceId, relative, generated, local).then((result) => {
       if (!cancelled) setImage(result);
     });
     return () => {
       cancelled = true;
     };
-  }, [workspaceId, relative, generated]);
+  }, [workspaceId, relative, generated, local]);
 
   // Escape closes the opened image, the way every other overlay behaves. The
   // listener is only attached while it is open, so it cannot swallow Escape
@@ -196,7 +197,9 @@ export function InlineImage({ workspaceId, relative, alt, generated }: { workspa
     return () => document.removeEventListener("keydown", onKey, true);
   }, [large]);
 
-  if (image === undefined) return <span className="chip small muted">{t("loading {path}…", { path: relative })}</span>;
+  // A local path is a guess (a file name looked for in a folder the reply
+  // named), so it shows nothing until it is known to be there.
+  if (image === undefined) return local ? null : <span className="chip small muted">{t("loading {path}…", { path: relative })}</span>;
   if (image === null) return null;
   const src = `data:${image.mime};base64,${image.dataBase64}`;
   return (
@@ -206,7 +209,7 @@ export function InlineImage({ workspaceId, relative, alt, generated }: { workspa
           <img alt={alt ?? relative} src={src} />
         </button>
         <figcaption className="small muted">
-          <span className="mono">{relative}</span> · {image.width}×{image.height} · {(image.bytes / 1024).toFixed(0)} KiB
+          <span className="mono" title={image.absolutePath}>{relative}</span> · {image.width}×{image.height} · {(image.bytes / 1024).toFixed(0)} KiB
           {image.credentials?.generator ? (
             <span title={t("Generator recorded in the file's Content Credentials (C2PA manifest), read as recorded and not signature-verified")}>
               {" "}· {image.credentials.generator}

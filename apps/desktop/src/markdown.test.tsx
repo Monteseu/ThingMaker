@@ -46,3 +46,37 @@ describe("markdown blocks", () => {
     expect(document.body.textContent).not.toContain("claude.ai");
   });
 });
+
+describe("paths in messages", () => {
+  const handler = () => ({ reveal: vi.fn(), preview: vi.fn() });
+
+  it("turns a folder in prose into a Finder button, leaving the sentence's colon behind", () => {
+    const onPath = handler();
+    render(<Markdown onPath={onPath} source={"They're in ~/Projects/archive/launch/promo/: both versions."} />);
+    const button = screen.getByTitle("Show ~/Projects/archive/launch/promo/ in Finder");
+    fireEvent.click(button);
+    expect(onPath.reveal).toHaveBeenCalledWith("~/Projects/archive/launch/promo/");
+    expect(screen.queryByTitle(/^Preview/)).toBeNull();
+    expect(document.body.textContent).toContain("/: both versions.");
+  });
+
+  it("gives a file in a code span a preview button too", () => {
+    const onPath = handler();
+    render(<Markdown onPath={onPath} source={"Saved `/Users/me/My Drive/brief v2.pdf`."} />);
+    fireEvent.click(screen.getByTitle("Preview /Users/me/My Drive/brief v2.pdf"));
+    expect(onPath.preview).toHaveBeenCalledWith("/Users/me/My Drive/brief v2.pdf");
+  });
+
+  it("leaves URLs, slash commands, words and command lines alone", () => {
+    const onPath = handler();
+    const source = "See https://example.com/a/b, run `/help`, and/or `/usr/bin/env node` or `ls -la ~/x/`; also /tmp.";
+    const { container } = render(<Markdown onLink={() => undefined} onPath={onPath} source={source} />);
+    expect(container.querySelectorAll(".path-link")).toHaveLength(0);
+  });
+
+  it("stays plain text without a handler", () => {
+    const html = renderToStaticMarkup(<Markdown source={"In ~/Projects/promo/ and `/Users/me/a.png`."} />);
+    expect(html).not.toContain("path-link");
+    expect(html).toContain("<code>/Users/me/a.png</code>");
+  });
+});

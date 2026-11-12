@@ -13,26 +13,37 @@
 import type { ToolPatch } from "@thingmaker/contracts";
 import type { Card } from "./projection";
 
-/** An image the renderer can read: inside the workspace, or one Codex generated. */
-export type ImageRef = { kind: "workspace"; relative: string } | { kind: "generated"; path: string };
+/**
+ * An image the renderer can read: inside the workspace, one Codex generated,
+ * or (`local`) one an agent named by absolute or `~/` path in its reply.
+ */
+export type ImageRef = { kind: "workspace"; relative: string } | { kind: "generated"; path: string } | { kind: "local"; path: string };
+
+/** Whether a path outside the workspace may be shown: only when an agent's own reply names it. */
+export type Reach = { outside?: boolean };
 
 const EXTENSION = /\.(?:png|jpe?g|webp|gif)$/i;
-// Absolute paths (no spaces), then workspace-relative ones.
-const ABSOLUTE = /(?:file:\/\/)?(\/(?:[\w.@+-]+\/)*[\w.@+-]+\.(?:png|jpe?g|webp|gif))(?![\w/])/gi;
-const RELATIVE = /(?:^|[\s"'`(\[])((?:\.\/)?(?:[\w.@+-]+\/)*[\w.@+-]+\.(?:png|jpe?g|webp|gif))(?=$|[\s"'`)\],;:!?])/gi;
+// Absolute or home-relative paths (no spaces) that start a word — not the
+// tail of `assets/icon.png` — then workspace-relative ones.
+const ABSOLUTE = /(?<![\w.@+/~-])(?:file:\/\/)?(~?\/(?:[\w.@+-]+\/)*[\w.@+-]+\.(?:png|jpe?g|webp|gif))(?![\w/])/gi;
+const RELATIVE = /(?:^|[\s"'`(\[*])((?:\.\/)?(?:[\w.@+-]+\/)*[\w.@+-]+\.(?:png|jpe?g|webp|gif))(?=$|[\s"'`)\],;:!?*])/gi;
+// A folder named in prose: an absolute or `~/` path that ends in a slash or
+// whose last part has no extension.
+const FOLDER = /(?<![^\s"'`(\[*])(~?\/(?:[\w.@+-]+\/)*[\w@+-]+\/?)(?![\w.@+/-])/g;
 
 export function keyOf(ref: ImageRef): string {
-  return ref.kind === "workspace" ? `w:${ref.relative}` : `g:${ref.path}`;
+  return ref.kind === "workspace" ? `w:${ref.relative}` : ref.kind === "generated" ? `g:${ref.path}` : `l:${ref.path}`;
 }
 
 /** Reads one path as an image the renderer may show, or null. */
-export function imageRefFor(path: string, root: string): ImageRef | null {
+export function imageRefFor(path: string, root: string, reach: Reach = {}): ImageRef | null {
   const clean = path.trim().replace(/^file:\/\//, "");
   if (!EXTENSION.test(clean) || /^[a-z]+:\/\//i.test(clean)) return null;
-  if (clean.startsWith("/")) {
+  if (clean.startsWith("/") || clean.startsWith("~/")) {
     const base = root.replace(/\/+$/, "");
     if (base && clean.startsWith(`${base}/`)) return { kind: "workspace", relative: clean.slice(base.length + 1) };
     if (/\/\.codex\/generated_images\//.test(clean)) return { kind: "generated", path: clean };
+    if (reach.outside && !clean.split("/").includes("..")) return { kind: "local", path: clean };
     return null;
   }
   const relative = clean.replace(/^\.\//, "");
@@ -40,19 +51,41 @@ export function imageRefFor(path: string, root: string): ImageRef | null {
   return { kind: "workspace", relative };
 }
 
-/** Every image a piece of text names, in order, without repeats. */
-export function imageRefsIn(text: string, root: string): ImageRef[] {
+/** The folders a piece of text names, for file names it lists on their own. */
+export function foldersIn(text: string): string[] {
+  const out = new Set<string>();
+  for (const match of text.matchAll(FOLDER)) {
+    const path = match[1];
+    if (!path || path === "/" || path === "~/" || path.split("/").includes("..")) continue;
+    // `/usr` and the like are words more often than folders worth listing.
+    if (path.startsWith("/") && path.replace(/\/$/, "").split("/").length < 3) continue;
+    out.add(path.replace(/\/+$/, ""));
+  }
+  return [...out].slice(0, 3);
+}
+
+/**
+ * Every image a piece of text names, in order, without repeats. With
+ * `outside`, a bare file name is also looked for in each folder the text
+ * names ("they're in ~/Exports/promo/: a.png, b.png"); a candidate that is
+ * not there renders nothing.
+ */
+export function imageRefsIn(text: string, root: string, reach: Reach = {}): ImageRef[] {
   const found = new Map<string, ImageRef>();
   const add = (path: string | undefined) => {
     if (!path) return;
-    const ref = imageRefFor(path, root);
+    const ref = imageRefFor(path, root, reach);
     if (ref && !found.has(keyOf(ref))) found.set(keyOf(ref), ref);
   };
-  const absolute = [...text.matchAll(ABSOLUTE)].map((match) => ({ index: match.index ?? 0, path: match[1] }));
+  const folders = reach.outside ? foldersIn(text) : [];
+  const absolute = [...text.matchAll(ABSOLUTE)].map((match) => ({ index: match.index ?? 0, path: match[1], relative: false }));
   // Relative matches inside an absolute one are the same file seen again.
   const covered = (index: number) => absolute.some((entry) => index >= entry.index && index < entry.index + (entry.path?.length ?? 0) + 8);
-  const relative = [...text.matchAll(RELATIVE)].filter((match) => !covered(match.index ?? 0)).map((match) => ({ index: match.index ?? 0, path: match[1] }));
-  for (const entry of [...absolute, ...relative].sort((a, b) => a.index - b.index)) add(entry.path);
+  const relative = [...text.matchAll(RELATIVE)].filter((match) => !covered(match.index ?? 0)).map((match) => ({ index: match.index ?? 0, path: match[1], relative: true }));
+  for (const entry of [...absolute, ...relative].sort((a, b) => a.index - b.index)) {
+    if (entry.relative && entry.path) for (const folder of folders) add(`${folder}/${entry.path.replace(/^\.\//, "")}`);
+    add(entry.path);
+  }
   return [...found.values()];
 }
 
@@ -119,12 +152,14 @@ export function assignImages(cards: Card[], tools: Map<string, ToolPatch>, root:
   const take = (key: string, refs: ImageRef[]) => {
     const fresh = refs.filter((ref) => !seen.has(keyOf(ref)));
     for (const ref of fresh) seen.add(keyOf(ref));
-    if (fresh.length > 0) out.set(key, fresh.slice(0, 6));
+    if (fresh.length > 0) out.set(key, fresh.slice(0, 8));
   };
   for (const card of cards) {
     if (card.kind === "message" && card.message.role === "agent") {
       const message = card.message;
-      take(card.key, cached(message, () => imageRefsIn(textOf(message.blocks.map((block) => (block.type === "text" ? block.text : ""))), root)));
+      // A reply may point outside the workspace (an export folder); tool
+      // output may not, since tools read and list far more than they show.
+      take(card.key, cached(message, () => imageRefsIn(textOf(message.blocks.map((block) => (block.type === "text" ? block.text : ""))), root, { outside: true })));
     } else if (card.kind === "tool") {
       const patch = tools.get(card.toolCallId);
       if (!patch || !showsImages(patch)) continue;

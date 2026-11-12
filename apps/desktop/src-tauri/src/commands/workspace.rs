@@ -288,6 +288,65 @@ pub fn reveal_in_finder(path: String, state: State<'_, AppState>) -> CommandResu
     if !known {
         return Err(DesktopError::untrusted("only folders inside a workspace are opened"));
     }
+    show_in_file_manager(&resolved)
+}
+
+/// `~` and `~/…` name the home folder, the way agents write paths in prose.
+pub(crate) fn expand_home(path: &str, home: Option<&Path>) -> std::path::PathBuf {
+    match (path.strip_prefix('~'), home) {
+        (Some(""), Some(home)) => home.to_path_buf(),
+        (Some(rest), Some(home)) if rest.starts_with('/') || rest.starts_with('\\') => home.join(&rest[1..]),
+        _ => std::path::PathBuf::from(path),
+    }
+}
+
+/// An absolute path a message named, resolved and required to exist.
+fn named_path(path: &str, state: &AppState) -> CommandResult<std::path::PathBuf> {
+    let expanded = expand_home(path.trim(), state.home.as_deref());
+    if !expanded.is_absolute() {
+        return Err(DesktopError::untrusted("only absolute paths are opened"));
+    }
+    fs::canonicalize(&expanded).map_err(|error| DesktopError::io(format!("{path}: {error}")))
+}
+
+/// Shows a path an agent named in its message in the file manager: a folder
+/// opens, a file is shown selected in its folder. Unlike `reveal_in_finder`
+/// this is not limited to workspaces, because it never runs or opens the
+/// target itself — an app bundle is selected, not launched.
+#[tauri::command]
+pub fn reveal_path(path: String, state: State<'_, AppState>) -> CommandResult<()> {
+    let resolved = named_path(&path, &state)?;
+    show_in_file_manager(&resolved)
+}
+
+/// Previews a file an agent named with Quick Look (macOS), which renders
+/// documents, images and media read-only without opening their app.
+#[tauri::command]
+pub fn quick_look(path: String, state: State<'_, AppState>) -> CommandResult<()> {
+    let resolved = named_path(&path, &state)?;
+    if !resolved.is_file() {
+        return Err(DesktopError::unsupported("only files can be previewed"));
+    }
+    if !cfg!(target_os = "macos") {
+        return show_in_file_manager(&resolved);
+    }
+    std::process::Command::new("qlmanage")
+        .arg("-p")
+        .arg(&resolved)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| DesktopError::io(format!("could not open the preview: {error}")))
+}
+
+/// A folder macOS treats as one item (an `.app`, a `.bundle`): `open` would
+/// launch it, so it is selected in its parent instead.
+fn is_package(path: &Path) -> bool {
+    path.is_dir() && path.extension().is_some()
+}
+
+fn show_in_file_manager(resolved: &Path) -> CommandResult<()> {
     let mut command = std::process::Command::new(if cfg!(windows) {
         "explorer.exe"
     } else if cfg!(target_os = "macos") {
@@ -296,16 +355,43 @@ pub fn reveal_in_finder(path: String, state: State<'_, AppState>) -> CommandResu
         "xdg-open"
     });
     // A folder opens; a file is shown selected in its folder.
-    if resolved.is_dir() {
-        command.arg(&resolved);
+    if resolved.is_dir() && !(cfg!(target_os = "macos") && is_package(resolved)) {
+        command.arg(resolved);
     } else {
         if cfg!(windows) {
             command.arg(format!("/select,{}", resolved.display()));
         } else if cfg!(target_os = "macos") {
-            command.arg("-R").arg(&resolved);
+            command.arg("-R").arg(resolved);
         } else {
-            command.arg(resolved.parent().unwrap_or(&resolved));
+            command.arg(resolved.parent().unwrap_or(resolved));
         }
     }
     command.spawn().map(|_| ()).map_err(|error| DesktopError::io(format!("could not open file manager: {error}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn home_is_expanded_only_at_the_start() {
+        let home = Path::new("/Users/me");
+        assert_eq!(expand_home("~/Exports/promo", Some(home)), Path::new("/Users/me/Exports/promo"));
+        assert_eq!(expand_home("~", Some(home)), home);
+        assert_eq!(expand_home("/tmp/~/x", Some(home)), Path::new("/tmp/~/x"));
+        // `~other` is someone else's home, which is not looked up.
+        assert_eq!(expand_home("~other/x", Some(home)), Path::new("~other/x"));
+        assert_eq!(expand_home("~/x", None), Path::new("~/x"));
+    }
+
+    #[test]
+    fn only_folders_with_an_extension_count_as_packages() {
+        let temp = tempfile::tempdir().unwrap();
+        let app = temp.path().join("Tool.app");
+        let plain = temp.path().join("promo");
+        fs::create_dir(&app).unwrap();
+        fs::create_dir(&plain).unwrap();
+        assert!(is_package(&app));
+        assert!(!is_package(&plain));
+    }
 }

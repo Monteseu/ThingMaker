@@ -368,6 +368,20 @@ pub fn generated_image(path: String, state: State<'_, AppState>) -> CommandResul
     read_image(&resolved, label)
 }
 
+/// An image an agent named by absolute (or `~/`) path in its reply, outside
+/// any workspace — an export folder, an archive. Read with the same checks as
+/// a workspace image: a regular file, sniffed as an image, size-limited.
+#[tauri::command]
+pub fn local_image(path: String, state: State<'_, AppState>) -> CommandResult<WorkspaceImage> {
+    let expanded = super::workspace::expand_home(path.trim(), state.home.as_deref());
+    if !expanded.is_absolute() {
+        return Err(DesktopError::untrusted("only absolute image paths are read"));
+    }
+    let resolved = std::fs::canonicalize(&expanded).map_err(|e| DesktopError::io(format!("{path}: {e}")))?;
+    let label = resolved.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or(path);
+    read_image(&resolved, label)
+}
+
 fn read_image(path: &Path, relative: String) -> CommandResult<WorkspaceImage> {
     use thingmaker_supervisor::attachments::{MAX_IMAGE_PIXELS, MediaKind, image_dimensions, sniff_media};
     let metadata = std::fs::metadata(path).map_err(|e| DesktopError::io(format!("{relative}: {e}")))?;

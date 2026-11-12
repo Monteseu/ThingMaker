@@ -29,7 +29,7 @@ import { BackgroundTasksButton } from "./BackgroundTasks";
 import { bigThingTurnOf, splitSideNotes, userMessageText } from "../bigThingTurns";
 import { AttachmentThumb, BlockImage, InlineImage, workspaceImageRenderer } from "./InlineImage";
 import { remoteFull } from "../toolImages";
-import { Markdown } from "../markdown";
+import { Markdown, type PathHandler } from "../markdown";
 import { copiesItself, forkPointAt, splitNestedReports } from "../fork";
 import { isLocalChat } from "../localModels";
 import { LocalBadge } from "./LocalBadge";
@@ -66,13 +66,23 @@ function copyText(text: string) {
 }
 
 function Blocks({ blocks, markdown, onLink, workspaceId }: { blocks: ContentBlock[]; markdown: boolean; onLink: (url: string) => void; workspaceId: string }) {
+  const setError = useStore((s) => s.setError);
+  // Paths an agent names open in Finder (a file is shown selected) or in
+  // Quick Look; neither runs or opens the file itself.
+  const onPath = useMemo<PathHandler>(
+    () => ({
+      reveal: (path) => void api.revealPath(path).catch(setError),
+      preview: (path) => void api.quickLook(path).catch(setError),
+    }),
+    [setError],
+  );
   return (
     <>
       {blocks.map((block, index) => {
         switch (block.type) {
           case "text":
             return markdown ? (
-              <Markdown key={index} onCopyCode={copyText} onImage={workspaceImageRenderer(workspaceId)} onLink={onLink} source={block.text} />
+              <Markdown key={index} onCopyCode={copyText} onImage={workspaceImageRenderer(workspaceId)} onLink={onLink} onPath={onPath} source={block.text} />
             ) : (
               <pre className="text" key={index}>
                 {block.text}
@@ -203,6 +213,8 @@ function CardImages({ images, workspaceId }: { images: ImageRef[]; workspaceId: 
       {images.map((ref) =>
         ref.kind === "workspace" ? (
           <InlineImage key={keyOf(ref)} relative={ref.relative} workspaceId={workspaceId} />
+        ) : ref.kind === "local" ? (
+          <InlineImage key={keyOf(ref)} local={ref.path} relative={ref.path.split("/").pop() ?? ref.path} workspaceId={workspaceId} />
         ) : (
           <InlineImage generated={ref.path} key={keyOf(ref)} relative={ref.path.split("/").pop() ?? ref.path} workspaceId={workspaceId} />
         ),

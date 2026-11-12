@@ -4,12 +4,14 @@
  * A deliberately small block/inline parser producing React elements, never
  * HTML strings: raw HTML in the source is shown as text, links are limited to
  * http(s)/mailto and open through the explicit external-URL command, and
- * images are not fetched (they render as labelled chips). Unsupported syntax
+ * images are not fetched (they render as labelled chips). With `onPath`, an
+ * absolute or `~/` path in prose or in a code span becomes a button that
+ * shows it in the file manager, never one that opens or runs it. Unsupported syntax
  * degrades to plain paragraphs rather than guessing.
  */
 import { Fragment, type ReactNode } from "react";
 import { t } from "./i18n";
-import { IconExternal, IconSpark } from "./components/icons";
+import { IconDoc, IconExternal, IconEyeCheck, IconFolder, IconSpark } from "./components/icons";
 
 export type Block =
   | { type: "heading"; level: number; text: string }
@@ -120,7 +122,57 @@ function safeHref(url: string): string | null {
 
 export type LinkHandler = (url: string) => void;
 
-const INLINE = /(`[^`]+`)|(\*\*[^*]+\*\*)|(__[^_]+__)|(\*[^*\n]+\*)|(_[^_\n]+_)|(~~[^~]+~~)|(!\[[^\]]*\]\([^)]*\))|(\[[^\]]+\]\([^)]*\))|(<https?:\/\/[^>\s]+>)|(https?:\/\/[^\s<>"'`]+)/;
+/** What a path in a message can do: show it in the file manager, preview a file. */
+export type PathHandler = { reveal: (path: string) => void; preview?: (path: string) => void };
+
+// A path in prose: `~/…`, or absolute with at least two parts (`/Users/me`),
+// so a slash command like `/help` or "and/or" is left alone. It must start a
+// word; the address of a URL (`https://a/b`) never does.
+const PROSE_PATH = "(?<![^\\s(\\[])(?:~\\/|\\/[\\w.@+-]+\\/)[\\w.@+\\/-]*";
+const INLINE = new RegExp(
+  /(`[^`]+`)|(\*\*[^*]+\*\*)|(__[^_]+__)|(\*[^*\n]+\*)|(_[^_\n]+_)|(~~[^~]+~~)|(!\[[^\]]*\]\([^)]*\))|(\[[^\]]+\]\([^)]*\))|(<https?:\/\/[^>\s]+>)|(https?:\/\/[^\s<>"'`]+)/.source + `|(${PROSE_PATH})`,
+);
+
+/**
+ * A code span that is a path and nothing else. It may hold spaces ("My
+ * Drive"), but not a command line: `/usr/bin/env node`, `ls -la`, pipes.
+ */
+const CODE_PATH = /^(?:~\/|\/[^/\s][^/]*\/)[^\n]*$/;
+const COMMAND_LIKE = /\s-|\s\/|[|;&<>$*`]/;
+function isCodePath(text: string): boolean {
+  if (!CODE_PATH.test(text) || COMMAND_LIKE.test(text)) return false;
+  // A space in the last part is a file name with spaces only if it ends in
+  // an extension; `/usr/bin/env node` is a command and its argument.
+  const last = text.split("/").pop() ?? "";
+  return !/\s/.test(last) || /\.\w{1,8}$/.test(last);
+}
+
+/** Sentence punctuation after a path is the prose's, not the file's. */
+export function trimPath(token: string): string {
+  return token.replace(/[.,;:!?'")\]]+$/, "");
+}
+
+/** A path reads as a file when its last part has an extension. */
+function looksLikeFile(path: string): boolean {
+  return !path.endsWith("/") && /\.[\w]{1,8}$/.test(path.split("/").pop() ?? "");
+}
+
+function PathLink({ path, label, onPath }: { path: string; label?: ReactNode; onPath: PathHandler }) {
+  const file = looksLikeFile(path);
+  return (
+    <span className="path-link">
+      <button className="link inline-link path-link-reveal" onClick={() => onPath.reveal(path)} title={t("Show {path} in Finder", { path })} type="button">
+        {file ? <IconDoc size={12} /> : <IconFolder size={12} />}
+        <span className="mono">{label ?? path}</span>
+      </button>
+      {file && onPath.preview && (
+        <button aria-label={t("Preview {path}", { path })} className="link path-link-preview" onClick={() => onPath.preview?.(path)} title={t("Preview {path}", { path })} type="button">
+          <IconEyeCheck size={12} />
+        </button>
+      )}
+    </span>
+  );
+}
 
 /** A Claude artifact's page, which reads better as a named link than as its address. */
 const ARTIFACT = /^https:\/\/claude\.ai\/(?:code\/)?artifact\/([\w-]+)/i;
@@ -162,7 +214,7 @@ function linkTo(href: string, label: ReactNode | null, key: number, onLink?: Lin
 
 export type ImageRenderer = (src: string, alt: string) => ReactNode | null;
 
-export function renderInline(text: string, onLink?: LinkHandler, onImage?: ImageRenderer): ReactNode[] {
+export function renderInline(text: string, onLink?: LinkHandler, onImage?: ImageRenderer, onPath?: PathHandler): ReactNode[] {
   const out: ReactNode[] = [];
   let rest = text;
   let key = 0;
@@ -175,10 +227,13 @@ export function renderInline(text: string, onLink?: LinkHandler, onImage?: Image
     if (match.index > 0) out.push(rest.slice(0, match.index));
     const token = match[0];
     key += 1;
-    if (match[1]) out.push(<code key={key}>{token.slice(1, -1)}</code>);
-    else if (match[2] || match[3]) out.push(<strong key={key}>{renderInline(token.slice(2, -2), onLink)}</strong>);
-    else if (match[4] || match[5]) out.push(<em key={key}>{renderInline(token.slice(1, -1), onLink)}</em>);
-    else if (match[6]) out.push(<del key={key}>{renderInline(token.slice(2, -2), onLink)}</del>);
+    if (match[1]) {
+      const code = token.slice(1, -1);
+      const path = trimPath(code.trim());
+      out.push(onPath && isCodePath(path) ? <PathLink key={key} onPath={onPath} path={path} /> : <code key={key}>{code}</code>);
+    } else if (match[2] || match[3]) out.push(<strong key={key}>{renderInline(token.slice(2, -2), onLink, undefined, onPath)}</strong>);
+    else if (match[4] || match[5]) out.push(<em key={key}>{renderInline(token.slice(1, -1), onLink, undefined, onPath)}</em>);
+    else if (match[6]) out.push(<del key={key}>{renderInline(token.slice(2, -2), onLink, undefined, onPath)}</del>);
     else if (match[7]) {
       const parts = /!\[([^\]]*)\]\(([^)]*)\)/.exec(token);
       const alt = parts?.[1] ?? t("image");
@@ -206,6 +261,13 @@ export function renderInline(text: string, onLink?: LinkHandler, onImage?: Image
       out.push(linkTo(href, null, key, onLink));
       rest = rest.slice(match.index + href.length);
       continue;
+    } else if (match[11]) {
+      const path = trimPath(token);
+      // Without a handler, or once the prose's punctuation is gone and only
+      // `~/` is left, it stays text.
+      out.push(onPath && path.length > 2 ? <PathLink key={key} onPath={onPath} path={path} /> : path);
+      rest = rest.slice(match.index + path.length);
+      continue;
     }
     rest = rest.slice(match.index + token.length);
   }
@@ -217,14 +279,16 @@ export function Markdown({
   onLink,
   onCopyCode,
   onImage,
+  onPath,
 }: {
   source: string;
   onLink?: LinkHandler;
   onCopyCode?: (code: string) => void;
   onImage?: ImageRenderer;
+  onPath?: PathHandler;
 }) {
   const blocks = parseBlocks(source);
-  const inline = (text: string) => renderInline(text, onLink, onImage);
+  const inline = (text: string) => renderInline(text, onLink, onImage, onPath);
   return (
     <div className="markdown">
       {blocks.map((block, index) => {
