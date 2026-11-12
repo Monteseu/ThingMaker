@@ -101,8 +101,8 @@ export function ContextPane({ sessionId }: { sessionId: string }) {
     return h >= 48 ? t("resets in {n} d", { n: Math.round(h / 24) }) : h > 0 ? t("resets in {h} h {m} min", { h, m }) : t("resets in {m} min", { m });
   };
   const su = session.usage;
-  const primaryName = windowName(account?.primary?.windowSeconds);
-  const secondaryName = windowName(account?.secondary?.windowSeconds);
+  const primaryName = account?.primary?.label ?? windowName(account?.primary?.windowSeconds);
+  const secondaryName = account?.secondary?.label ?? windowName(account?.secondary?.windowSeconds);
 
   return (
     <div className="context-pane">
@@ -125,26 +125,16 @@ export function ContextPane({ sessionId }: { sessionId: string }) {
         )}
         {account && (
           <div className="row wrap">
-            {account.primary && (
-              <span className={`chip ${account.primary.usedPercent >= 90 ? "chip-warn" : ""}`} title={resetIn(resetAfter(account.primary.resetAtUnix))}>
+            {(account.windows ?? [account.primary, account.secondary]).map((window, index) => window && (
+              <span key={index} className={`chip ${window.usedPercent >= 90 ? "chip-warn" : ""}`} title={resetIn(resetAfter(window.resetAtUnix))}>
                 {t("{name} window: {left}% left ({used}% used) · {reset}", {
-                  name: primaryName,
-                  left: Math.max(0, 100 - Math.round(account.primary.usedPercent)),
-                  used: Math.round(account.primary.usedPercent),
-                  reset: resetIn(resetAfter(account.primary.resetAtUnix)),
+                  name: window.label ?? windowName(window.windowSeconds),
+                  left: Math.max(0, 100 - Math.round(window.usedPercent)),
+                  used: Math.round(window.usedPercent),
+                  reset: resetIn(resetAfter(window.resetAtUnix)),
                 })}
               </span>
-            )}
-            {account.secondary && (
-              <span className={`chip ${account.secondary.usedPercent >= 90 ? "chip-warn" : ""}`} title={resetIn(resetAfter(account.secondary.resetAtUnix))}>
-                {t("{name} window: {left}% left ({used}% used) · {reset}", {
-                  name: secondaryName,
-                  left: Math.max(0, 100 - Math.round(account.secondary.usedPercent)),
-                  used: Math.round(account.secondary.usedPercent),
-                  reset: resetIn(resetAfter(account.secondary.resetAtUnix)),
-                })}
-              </span>
-            )}
+            ))}
             {account.planType && <span className="chip">{account.planType}</span>}
             {account.limitReached && <span className="chip chip-warn">{t("limit reached")}</span>}
           </div>

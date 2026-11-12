@@ -66,11 +66,11 @@ function Help({ open, onToggle, label }: { open: boolean; onToggle: () => void; 
 function Meters({ provider }: { provider: Provider }) {
   const usage = useStore((s) => s.usage[provider]);
   if (!usage) return null;
-  const windows = [usage.primary, usage.secondary].filter((window): window is NonNullable<typeof window> => !!window);
+  const windows = (usage.windows ?? [usage.primary, usage.secondary]).filter((window): window is NonNullable<typeof window> => !!window);
   return (
     <>
-      {windows.map((window) => (
-        <UsageMeter key={window.windowSeconds} usage={window} />
+      {windows.map((window, index) => (
+        <UsageMeter key={index} usage={window} />
       ))}
       {usage.limitReached && <span className="chip-warn-text">{t("limit reached")}</span>}
     </>

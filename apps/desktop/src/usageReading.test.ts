@@ -25,3 +25,16 @@ describe("account usage readings", () => {
     expect(useStore.getState().usage.claude).toBeNull();
   });
 });
+
+it("keeps every Antigravity model bucket with its own label and reset", () => {
+  useStore.setState({ usage: {} });
+  useStore.getState().noteQuota({ provider: "gemini", status: "warning", observedAtUnixMs: 10, windows: [
+    { kind: "gemini-five-hour", usedPercent: 20, windowMinutes: 300, resetsAt: 100 },
+    { kind: "gemini-weekly", usedPercent: 40, windowMinutes: 10080, resetsAt: 200 },
+    { kind: "3p-weekly", usedPercent: 100, windowMinutes: 10080, resetsAt: 300 },
+  ] });
+  const usage = useStore.getState().usage.gemini!;
+  expect(usage.windows?.map(w => w.label)).toEqual(["Gemini · 5h", "Gemini · 7d", "Claude/GPT · 7d"]);
+  expect(usage.windows?.[2]?.resetAtUnix).toBe(300);
+  expect(usage.limitReached).toBe(false);
+});

@@ -8,7 +8,7 @@ import { windowName } from "./UsageLine";
 
 export function UsageMeter({ usage }: { usage: UsageWindow }) {
   const left = Math.max(0, 100 - Math.round(usage.usedPercent));
-  const name = windowName(usage.windowSeconds);
+  const name = usage.label ?? windowName(usage.windowSeconds);
   return (
     <span className="provider-meter" title={t("{percent}% left in the {window} window, as the provider last reported it", { percent: left, window: name })}>
       <span className="provider-meter-bar">

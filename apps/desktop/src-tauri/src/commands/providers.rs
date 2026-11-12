@@ -257,9 +257,7 @@ pub async fn provider_models(provider: Provider, state: State<'_, AppState>) -> 
 /// Asks a provider for its account's quota now, rather than waiting for the
 /// next report on a session's stream.
 ///
-/// Codex answers `account/rateLimits/read` on demand. Claude Code has no such
-/// question: it reports on every turn and, once spent, in the refusal, so for
-/// Claude this is unsupported and the caller relies on those reports.
+/// Reads each CLI’s own usage data without spending a model turn.
 #[tauri::command]
 pub async fn provider_quota(provider: Provider, state: State<'_, AppState>) -> CommandResult<thingmaker_supervisor::agents::events::QuotaSnapshot> {
     let resolved = state.resolve_provider(provider)?;
@@ -282,8 +280,11 @@ pub async fn provider_quota(provider: Provider, state: State<'_, AppState>) -> C
                 .await
                 .map_err(|error| DesktopError::io(error.to_string()))??
         }
-        // `agy` reports usage per turn but has no quota question.
-        Provider::Gemini => return Err(DesktopError::unsupported("Antigravity does not report its quota; a spent account shows as a refused turn.")),
+        Provider::Gemini => {
+            tauri::async_runtime::spawn_blocking(move || gemini::quota::read_quota(&resolved.program, &home, Duration::from_secs(30)).map_err(DesktopError::io))
+                .await
+                .map_err(|error| DesktopError::io(error.to_string()))??
+        }
         Provider::Local => return Err(DesktopError::unsupported("Local Models are free and have no quota.")),
     };
     // The router places work by the same reading the sidebar shows.

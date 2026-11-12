@@ -678,6 +678,7 @@ export function usageFromQuota(quota: QuotaSnapshot): UsageSnapshot | null {
     .filter((window) => window.usedPercent !== undefined)
     .sort((a, b) => (a.windowMinutes ?? Number.MAX_SAFE_INTEGER) - (b.windowMinutes ?? Number.MAX_SAFE_INTEGER));
   const toWindow = (window: QuotaSnapshot["windows"][number]) => ({
+    ...(quota.provider === "gemini" ? { label: window.kind.replace(/^gemini-/, "Gemini · ").replace(/^3p-/, "Claude/GPT · ").replace(/weekly$/, "7d").replace(/five-hour$/, "5h") } : {}),
     usedPercent: window.usedPercent ?? 100,
     windowSeconds: (window.windowMinutes ?? 0) * 60,
     ...(window.resetsAt !== undefined ? { resetAtUnix: window.resetsAt } : {}),
@@ -687,6 +688,7 @@ export function usageFromQuota(quota: QuotaSnapshot): UsageSnapshot | null {
   const windows = measured.length > 0 ? measured : quota.windows;
   return {
     fetchedAtUnixMs: quota.observedAtUnixMs,
+    ...(quota.provider === "gemini" ? { windows: windows.map(toWindow) } : {}),
     ...(quota.plan ? { planType: quota.plan } : {}),
     allowed: !rejected,
     limitReached: rejected,
@@ -1237,8 +1239,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async refreshUsage(provider) {
-    // Both accounts are asked now: Codex through its app-server, Claude
-    // through Claude Code's own `/usage` data. Neither costs a turn.
+    // Ask each CLI for its own account usage without spending a model turn.
     try {
       const quota = await api.providerQuota(provider);
       // A reading is for the account it was asked about, or it is not one.

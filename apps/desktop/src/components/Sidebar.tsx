@@ -837,13 +837,19 @@ export function Sidebar() {
             const snapshot = usage[provider];
             if (!snapshot?.primary) return null;
             const title = t("{provider}, account-wide. Details in a session's Context tab.", { provider: `${PROVIDER_LABELS[provider]}${snapshot.planType ? ` (${snapshot.planType})` : ""}` });
-            return (
-              <div className="sidebar-meter-row" key={provider} title={snapshot.limitReached ? `${title} · ${t("limit reached")}` : title}>
-                <span className={`sidebar-meter-name ${snapshot.limitReached ? "chip-warn-text" : ""}`}>{PROVIDER_LABELS[provider]}</span>
-                <UsageMeter usage={snapshot.primary} />
-                {snapshot.secondary ? <UsageMeter usage={snapshot.secondary} /> : <span />}
-              </div>
-            );
+            const windows = snapshot.windows ?? [snapshot.primary, ...(snapshot.secondary ? [snapshot.secondary] : [])];
+            const columns = snapshot.windows ? 1 : 2;
+            return Array.from({ length: Math.ceil(windows.length / columns) }, (_, row) => {
+              const first = windows[row * columns]!;
+              const second = columns === 2 ? windows[row * columns + 1] : undefined;
+              return (
+                <div className={`sidebar-meter-row ${columns === 1 ? "sidebar-meter-row-model" : ""}`} key={`${provider}-${row}`} title={snapshot.limitReached ? `${title} · ${t("limit reached")}` : title}>
+                  <span className={`sidebar-meter-name ${snapshot.limitReached ? "chip-warn-text" : ""}`}>{row === 0 ? PROVIDER_LABELS[provider] : ""}</span>
+                  <UsageMeter usage={first} />
+                  {columns === 2 && (second ? <UsageMeter usage={second} /> : <span />)}
+                </div>
+              );
+            });
           })}
         </div>}
         {IS_REMOTE && <PhoneAppSettings />}

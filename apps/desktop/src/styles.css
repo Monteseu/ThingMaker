@@ -7880,6 +7880,10 @@ html[data-platform="android"] { --traffic-lights: 8px; --titlebar: 52px; height:
   display: contents;
 }
 
+.sidebar-meter-row-model .provider-meter {
+  grid-column: span 2;
+}
+
 .sidebar-meter-name {
   overflow: hidden;
   white-space: nowrap;

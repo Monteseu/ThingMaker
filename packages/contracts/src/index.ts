@@ -1560,7 +1560,7 @@ export type UsageTotals = {
   partial: boolean;
 };
 /** One window of an account's percentage rate limit (5-hour or weekly). */
-export type UsageWindow = { usedPercent: number; windowSeconds: number; resetAfterSeconds?: number; resetAtUnix?: number };
+export type UsageWindow = { label?: string; usedPercent: number; windowSeconds: number; resetAfterSeconds?: number; resetAtUnix?: number };
 /** Account-wide subscription status, for a provider that reports its windows
  *  as percentages (Codex). Derived from the provider's own quota events. */
 export type UsageSnapshot = {
@@ -1571,6 +1571,8 @@ export type UsageSnapshot = {
   limitReached: boolean;
   primary?: UsageWindow;
   secondary?: UsageWindow;
+  /** All model-group windows when a provider reports independent buckets. */
+  windows?: UsageWindow[];
   creditsBalance?: string;
   rateLimitReachedType?: string;
 };
