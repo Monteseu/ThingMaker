@@ -176,6 +176,16 @@ export type OpenRequest = {
 const HISTORY_PAGE = 500;
 
 export const api = {
+  screenDevices: () => call<import("@thingmaker/contracts").ScreenDevice[]>(COMMANDS.screenDevices),
+  screenCapture: (device: import("@thingmaker/contracts").ScreenDevice) => call<string>(COMMANDS.screenCapture, { device }),
+  screenStreamStart: (device: import("@thingmaker/contracts").ScreenDevice, onEvent: (event: import("@thingmaker/contracts").ScreenStreamEvent) => void) => {
+    const channel = new Channel<import("@thingmaker/contracts").ScreenStreamEvent>();
+    channel.onmessage = onEvent;
+    return call<string>(COMMANDS.screenStreamStart, { device, onEvent: channel });
+  },
+  screenStreamStop: (id: string) => call<void>(COMMANDS.screenStreamStop, { id }),
+  screenStreamAck: (id: string, sequence: number) => call<void>(COMMANDS.screenStreamAck, { id, sequence }),
+  screenStreamHeartbeat: (id: string) => call<void>(COMMANDS.screenStreamHeartbeat, { id }),
   executionProfiles: () => call<ProfileInfo[]>(COMMANDS.executionProfiles),
   workspaceInspect: (path: string) => call<WorkspaceInspection>(COMMANDS.workspaceInspect, { path }),
   workspaceTrust: (workspaceId: string, state: TrustState, trustDigest: string) =>

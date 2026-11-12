@@ -118,6 +118,7 @@ pub fn run() {
             let state = state::AppState::initialize(&data_dir, resource_dir.as_deref())
                 .map_err(|error| format!("could not initialize desktop state: {error}"))?;
             app.manage(state);
+            app.manage(commands::screen_stream::ScreenStreams::default());
             titles::set_app(app.handle());
             // Delegation is an addition, not a precondition: without its
             // socket, sessions open as plain ones.
@@ -180,6 +181,12 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            commands::screen::screen_devices,
+            commands::screen::screen_capture,
+            commands::screen_stream::screen_stream_start,
+            commands::screen_stream::screen_stream_stop,
+            commands::screen_stream::screen_stream_ack,
+            commands::screen_stream::screen_stream_heartbeat,
             commands::workspace::execution_profiles,
             commands::workspace::workspace_inspect,
             commands::workspace::workspace_trust,

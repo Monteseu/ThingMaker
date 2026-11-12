@@ -1,5 +1,19 @@
 /** Spanish for the session strings, keyed by their English text. */
 export const session: Record<string, string> = {
+  "Panel view": "Vista del panel",
+  "Crew": "Equipo",
+  "Screen": "Pantalla",
+  "Phone or emulator": "Móvil o emulador",
+  "Screen of {name}": "Pantalla de {name}",
+  "View only · refreshes every second": "Solo lectura · se actualiza cada segundo",
+  "Live · up to 30 fps · view only": "En directo · hasta 30 fps · solo lectura",
+  "Retry": "Reintentar",
+  "Live video unavailable. Check that scrcpy and FFmpeg are installed and the device is authorized.": "Vídeo en directo no disponible. Comprueba que scrcpy y FFmpeg estén instalados y que el dispositivo esté autorizado.",
+  "Connecting to the screen…": "Conectando con la pantalla…",
+  "Looking for devices…": "Buscando dispositivos…",
+  "Cannot read this screen. Check that the device is connected and authorized.": "No se puede ver la pantalla. Comprueba que el dispositivo esté conectado y autorizado.",
+  "Device preview unavailable. Use the desktop app with Android platform tools or Xcode simulators installed.": "La vista de dispositivos no está disponible. Usa la aplicación de escritorio con las herramientas de Android o los simuladores de Xcode instalados.",
+  "No devices found. Connect an Android phone with USB debugging enabled, or start an Android emulator or iOS simulator.": "No se han encontrado dispositivos. Conecta un Android con la depuración USB activada o abre un emulador de Android o simulador de iOS.",
   // QueueStrip
   "Steer in": "Redirigir ya",
   "Send it into the running turn now": "Enviarlo ya al turno en curso",

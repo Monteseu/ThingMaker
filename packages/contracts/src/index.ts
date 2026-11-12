@@ -1695,8 +1695,18 @@ export type LoginEvent =
 
 export type OpenResponse = { handle: SessionHandle; desktopSessionId: string; snapshot: Snapshot };
 
+/** A locally connected device whose screen can be previewed read-only. */
+export type ScreenDevice = { id: string; name: string; platform: "android" | "ios" };
+export type ScreenStreamEvent = { kind: "frame"; sequence: number; dataUrl: string } | { kind: "error"; message: string };
+
 /** Command names exposed by the Tauri host. */
 export const COMMANDS = {
+  screenDevices: "screen_devices",
+  screenCapture: "screen_capture",
+  screenStreamStart: "screen_stream_start",
+  screenStreamStop: "screen_stream_stop",
+  screenStreamAck: "screen_stream_ack",
+  screenStreamHeartbeat: "screen_stream_heartbeat",
   executionProfiles: "execution_profiles",
   workspaceInspect: "workspace_inspect",
   workspaceTrust: "workspace_trust",

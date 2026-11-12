@@ -2,6 +2,15 @@
    The room's colours are its own, not the app theme's, so it reads the same in
    light and dark; only the frame around it follows the theme. */
 
+.office-stage, .office-device-view { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.office-view-switch { display: flex; gap: 4px; }
+.office-view-switch button { flex: 1; border-radius: 6px; padding: 6px 8px; }
+.office-view-switch button[aria-pressed="true"] { color: var(--accent, #ff6b22); border-color: currentColor; }
+.office-device-view select { width: 100%; min-width: 0; }
+.office-device-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 260px; }
+.office-device-screen img { display: block; width: 100%; max-height: 65vh; object-fit: contain; border-radius: 8px; background: #111; }
+.office-device-screen p { font-size: 12px; text-align: center; }
+
 .office-pane {
   position: relative;
   flex: none;
