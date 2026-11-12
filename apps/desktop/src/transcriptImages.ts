@@ -24,12 +24,13 @@ export type Reach = { outside?: boolean };
 
 const EXTENSION = /\.(?:png|jpe?g|webp|gif)$/i;
 // Absolute or home-relative paths (no spaces) that start a word — not the
-// tail of `assets/icon.png` — then workspace-relative ones.
-const ABSOLUTE = /(?<![\w.@+/~-])(?:file:\/\/)?(~?\/(?:[\w.@+-]+\/)*[\w.@+-]+\.(?:png|jpe?g|webp|gif))(?![\w/])/gi;
+// tail of `assets/icon.png` — then workspace-relative ones. The character
+// before a path is matched, not looked behind for (see markdown.tsx).
+const ABSOLUTE = /(^|[^\w.@+/~-])(?:file:\/\/)?(~?\/(?:[\w.@+-]+\/)*[\w.@+-]+\.(?:png|jpe?g|webp|gif))(?![\w/])/gi;
 const RELATIVE = /(?:^|[\s"'`(\[*])((?:\.\/)?(?:[\w.@+-]+\/)*[\w.@+-]+\.(?:png|jpe?g|webp|gif))(?=$|[\s"'`)\],;:!?*])/gi;
 // A folder named in prose: an absolute or `~/` path that ends in a slash or
 // whose last part has no extension.
-const FOLDER = /(?<![^\s"'`(\[*])(~?\/(?:[\w.@+-]+\/)*[\w@+-]+\/?)(?![\w.@+/-])/g;
+const FOLDER = /(?:^|[\s"'`(\[*])(~?\/(?:[\w.@+-]+\/)*[\w@+-]+\/?)(?![\w.@+/-])/g;
 
 export function keyOf(ref: ImageRef): string {
   return ref.kind === "workspace" ? `w:${ref.relative}` : ref.kind === "generated" ? `g:${ref.path}` : `l:${ref.path}`;
@@ -78,7 +79,7 @@ export function imageRefsIn(text: string, root: string, reach: Reach = {}): Imag
     if (ref && !found.has(keyOf(ref))) found.set(keyOf(ref), ref);
   };
   const folders = reach.outside ? foldersIn(text) : [];
-  const absolute = [...text.matchAll(ABSOLUTE)].map((match) => ({ index: match.index ?? 0, path: match[1], relative: false }));
+  const absolute = [...text.matchAll(ABSOLUTE)].map((match) => ({ index: (match.index ?? 0) + (match[1]?.length ?? 0), path: match[2], relative: false }));
   // Relative matches inside an absolute one are the same file seen again.
   const covered = (index: number) => absolute.some((entry) => index >= entry.index && index < entry.index + (entry.path?.length ?? 0) + 8);
   const relative = [...text.matchAll(RELATIVE)].filter((match) => !covered(match.index ?? 0)).map((match) => ({ index: match.index ?? 0, path: match[1], relative: true }));

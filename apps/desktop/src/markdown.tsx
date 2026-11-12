@@ -127,10 +127,12 @@ export type PathHandler = { reveal: (path: string) => void; preview?: (path: str
 
 // A path in prose: `~/…`, or absolute with at least two parts (`/Users/me`),
 // so a slash command like `/help` or "and/or" is left alone. It must start a
-// word; the address of a URL (`https://a/b`) never does.
-const PROSE_PATH = "(?<![^\\s(\\[])(?:~\\/|\\/[\\w.@+-]+\\/)[\\w.@+\\/-]*";
+// word; the address of a URL (`https://a/b`) never does. The character before
+// it is matched as its own group, not looked behind for: lookbehind needs
+// Safari 16.4, and a pattern the WebView cannot compile stops the whole app.
+const PROSE_PATH = "(^|[\\s(\\[])((?:~\\/|\\/[\\w.@+-]+\\/)[\\w.@+\\/-]*)";
 const INLINE = new RegExp(
-  /(`[^`]+`)|(\*\*[^*]+\*\*)|(__[^_]+__)|(\*[^*\n]+\*)|(_[^_\n]+_)|(~~[^~]+~~)|(!\[[^\]]*\]\([^)]*\))|(\[[^\]]+\]\([^)]*\))|(<https?:\/\/[^>\s]+>)|(https?:\/\/[^\s<>"'`]+)/.source + `|(${PROSE_PATH})`,
+  /(`[^`]+`)|(\*\*[^*]+\*\*)|(__[^_]+__)|(\*[^*\n]+\*)|(_[^_\n]+_)|(~~[^~]+~~)|(!\[[^\]]*\]\([^)]*\))|(\[[^\]]+\]\([^)]*\))|(<https?:\/\/[^>\s]+>)|(https?:\/\/[^\s<>"'`]+)/.source + `|${PROSE_PATH}`,
 );
 
 /**
@@ -261,12 +263,14 @@ export function renderInline(text: string, onLink?: LinkHandler, onImage?: Image
       out.push(linkTo(href, null, key, onLink));
       rest = rest.slice(match.index + href.length);
       continue;
-    } else if (match[11]) {
-      const path = trimPath(token);
+    } else if (match[12]) {
+      const lead = match[11] ?? "";
+      const path = trimPath(match[12]);
+      if (lead) out.push(lead);
       // Without a handler, or once the prose's punctuation is gone and only
       // `~/` is left, it stays text.
       out.push(onPath && path.length > 2 ? <PathLink key={key} onPath={onPath} path={path} /> : path);
-      rest = rest.slice(match.index + path.length);
+      rest = rest.slice(match.index + lead.length + path.length);
       continue;
     }
     rest = rest.slice(match.index + token.length);
