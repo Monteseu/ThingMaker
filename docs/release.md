@@ -88,7 +88,9 @@ keep a copy somewhere safe. To rotate it, ship one release whose
 1. `pnpm release 0.2.0` sets the version in `tauri.conf.json`, the Cargo
    workspace and both `package.json` files, refreshes `Cargo.lock`, commits
    "Release v0.2.0" and tags `v0.2.0`. It refuses a version that is not newer
-   or a tree with uncommitted changes.
+   or a tree with uncommitted changes. Then it reinstalls the app on this computer
+   (`pnpm app`), so the installed app is v0.2.0 too and is not offered its own
+   release as an update; `--no-install` skips that.
 2. Write the notes first, as a draft for the tag that is not pushed yet:
    `gh release create v0.2.0 --draft --title "ThingMaker v0.2.0" --notes-file notes.md`.
    The workflow builds into that draft and puts its notes in `latest.json`,

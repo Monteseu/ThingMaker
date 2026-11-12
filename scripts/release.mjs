@@ -6,13 +6,20 @@
 // refreshes Cargo.lock, commits "Release v0.2.0" and tags it v0.2.0. It does
 // not push: pushing the tag starts the release workflow, so that step stays
 // yours. See docs/release.md.
+//
+// Then it reinstalls the app on this computer (`pnpm app`), so the installed
+// app carries the version it was just released as. Built before the bump, it
+// would say the old version and be offered its own release as an update.
+// `--no-install` skips that.
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const version = process.argv[2]?.replace(/^v/, "");
+const args = process.argv.slice(2);
+const install = !args.includes("--no-install");
+const version = args.find((arg) => !arg.startsWith("--"))?.replace(/^v/, "");
 
 function fail(message) {
   console.error(message);
@@ -54,6 +61,14 @@ git("commit", "-m", `Release v${version}`);
 git("tag", "-a", `v${version}`, "-m", `ThingMaker v${version}`);
 
 console.log(`\nReleased v${version} locally (was ${current}).`);
+if (install) {
+  console.log("Reinstalling the app here, so it is v" + version + " too…");
+  try {
+    execFileSync("node", [join(root, "scripts/install-app.mjs")], { cwd: root, stdio: "inherit" });
+  } catch {
+    console.error("The app could not be reinstalled; run `pnpm app` before you next open it, or it will offer this release as an update.");
+  }
+}
 console.log("Push the commit and the tag to build it; the workflow leaves a draft release:");
 console.log(`  git push origin main && git push origin v${version}`);
 console.log("Then publish the draft on GitHub to offer the update to everyone.");
