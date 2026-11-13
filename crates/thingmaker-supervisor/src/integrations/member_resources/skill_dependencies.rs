@@ -199,6 +199,7 @@ mod tests {
         write(&home.join(".agents/skills/art/SKILL.md"), "---\nname: art\ndescription: Draw\n---\nUse mcp__paint__draw, mcp__events__read and mcp__missing__read.\n");
         write(&home.join(".claude.json"), r#"{"mcpServers":{"paint":{"type":"sse","url":"https://paint.test/events"},"events":{"type":"sse","url":"https://events.test/sse"}}}"#);
         write(&root.join(".mcp.json"), r#"{"mcpServers":{"paint":{"command":"paint-cli"}}}"#);
+        write(&root.join(".claude/settings.local.json"), r#"{"enabledMcpjsonServers":["paint"]}"#);
         write(&home.join(".codex/config.toml"), "[mcp_servers.paint]\ncommand=\"other-paint\"\nenabled=false\n");
         let found = catalog(home, &home.join(".claude"), Some(&root)).unwrap();
         let entry = skill(&found, "skill:agents-user:art");

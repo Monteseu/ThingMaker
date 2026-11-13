@@ -240,7 +240,6 @@ pub fn run() {
             commands::terminal::terminal_export,
             commands::terminal::save_text_file,
             commands::skills::context_sources_for_workspace,
-            commands::member_resources::claude_member_resources,
             commands::member_resources::member_resources_catalog,
             commands::skills::config_read_file,
             commands::skills::config_write_file,

@@ -49,6 +49,8 @@ for line in sys.stdin:
     let python = ["python3", "python"].into_iter().find(|program| std::process::Command::new(program).arg("--version").output().is_ok_and(|output| output.status.success())).expect("Python is installed");
     let server_args = |label: &str| vec![server.to_string_lossy().into_owned(), log.to_string_lossy().into_owned(), label.to_string()];
     std::fs::write(root.join(".mcp.json"), json!({"mcpServers":{"selected":{"command":python,"args":server_args("selected")},"excluded":{"command":python,"args":server_args("excluded")}}}).to_string()).unwrap();
+    std::fs::create_dir_all(root.join(".claude")).unwrap();
+    std::fs::write(root.join(".claude/settings.local.json"), json!({"enabledMcpjsonServers":["selected","excluded"]}).to_string()).unwrap();
     let found = member_resources::catalog(&root.join("fake-home"), &root.join("fake-home/.claude"), Some(&root)).unwrap().for_provider(provider);
     let selected_skill = "skill:agents-project:shared-art-integration";
     let dependency = &found.entries.iter().find(|entry| entry.id == selected_skill).unwrap().mcp_dependencies[0];

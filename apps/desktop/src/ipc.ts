@@ -270,7 +270,6 @@ export const api = {
   skillRemove: (scope: SkillScope, workspaceId: string | null, directoryName: string, keepBackup: boolean) =>
     call<RemovedSkill>(COMMANDS.skillRemove, { request: { scope, workspaceId, directoryName, keepBackup } }),
   mcpOverview: (workspaceId: string | null) => call<McpOverview>(COMMANDS.mcpOverview, { workspaceId }),
-  claudeMemberResources: (workspaceId: string | null) => call<MemberResourceCatalog>(COMMANDS.claudeMemberResources, { workspaceId }),
   memberResources: (workspaceId: string | null, provider: Provider) => call<MemberResourceCatalog>(COMMANDS.memberResources, { workspaceId, provider }),
   mcpCatalog: () => call<McpCatalogEntry[]>(COMMANDS.mcpCatalog),
   mcpParse: (text: string, name?: string) => call<McpServerSpec[]>(COMMANDS.mcpParse, { request: { text, name: name ?? null } }),
