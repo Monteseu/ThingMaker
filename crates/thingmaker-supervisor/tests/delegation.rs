@@ -43,10 +43,23 @@ struct MockLauncher {
     codex_flags: Vec<String>,
     launched: Mutex<Vec<WorkerSpec>>,
     released: Mutex<Vec<String>>,
+    /// When set, each revision checks that the service's state is free.
+    probe: std::sync::OnceLock<Delegation>,
+    revisions_under_lock: std::sync::atomic::AtomicUsize,
 }
 
 impl WorkerLauncher for MockLauncher {
     fn revision(&self, root: &std::path::Path, slot: &WorkerSlot) -> Result<Option<String>, DesktopError> {
+        if let Some(delegation) = self.probe.get().cloned() {
+            let (done, finished) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let _ = delegation.combo("probe");
+                let _ = done.send(());
+            });
+            if finished.recv_timeout(Duration::from_secs(2)).is_err() {
+                self.revisions_under_lock.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
         let account = std::fs::read_to_string(root.join("account-revision")).unwrap_or_default();
         Ok(Some(json!([slot.resources, account]).to_string()))
     }
@@ -109,7 +122,7 @@ fn team() -> Combo {
 type Heard = Arc<Mutex<Vec<JobView>>>;
 
 fn service(codex_flags: &[&str]) -> Option<(Delegation, Arc<MockLauncher>, Heard)> {
-    let launcher = Arc::new(MockLauncher { python: python()?, codex_flags: codex_flags.iter().map(|f| f.to_string()).collect(), launched: Mutex::default(), released: Mutex::default() });
+    let launcher = Arc::new(MockLauncher { python: python()?, codex_flags: codex_flags.iter().map(|f| f.to_string()).collect(), launched: Mutex::default(), released: Mutex::default(), probe: Default::default(), revisions_under_lock: Default::default() });
     let changes = Arc::new(Mutex::new(Vec::new()));
     let seen = changes.clone();
     let delegation = Delegation::new(launcher.clone(), move |job: &JobView| seen.lock().unwrap().push(job.clone()));
@@ -328,6 +341,41 @@ async fn changing_a_members_resources_invalidates_warm_sessions_and_old_followup
     delegation.await_jobs("resources", &[third.id], Duration::from_secs(10), false).await.unwrap();
     assert_eq!(launcher.launched.lock().unwrap().len(), 3);
     delegation.release("resources").await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn editing_a_members_note_keeps_its_open_worker_and_revisions_never_hold_the_state() {
+    let Some((delegation, launcher, _)) = service(&[]) else { return };
+    let _ = launcher.probe.set(delegation.clone());
+    let root = tempfile::tempdir().unwrap();
+    let mut combo = team();
+    combo.workers[0].provider = Provider::Claude;
+    delegation.register("notes", Provider::Claude, root.path().to_path_buf(), combo.clone());
+    delegation.set_worker_idle(Duration::from_secs(3600));
+    let first = delegation.delegate("notes", image_task()).unwrap();
+    delegation.await_jobs("notes", std::slice::from_ref(&first.id), Duration::from_secs(10), false).await.unwrap();
+    // What only guides the orchestrator, or goes with each new task.
+    combo.workers[0].note = Some("logos only".into());
+    combo.workers[0].capabilities.push("ui".into());
+    combo.workers[0].prompt = Some("Prefer SVG.".into());
+    delegation.set_combo("notes", combo.clone()).unwrap();
+    let follow_up = delegation.delegate("notes", DelegateArgs { task: "Continue".into(), continue_job: Some(first.id.clone()), ..Default::default() }).unwrap();
+    assert_eq!(follow_up.continues.as_deref(), Some(first.id.as_str()));
+    delegation.await_jobs("notes", std::slice::from_ref(&follow_up.id), Duration::from_secs(10), false).await.unwrap();
+    let warm = delegation.delegate("notes", image_task()).unwrap();
+    assert!(warm.warm, "the open worker takes a new task");
+    delegation.await_jobs("notes", &[warm.id], Duration::from_secs(10), false).await.unwrap();
+    assert_eq!(launcher.launched.lock().unwrap().len(), 1);
+    // What it can do changed: a fresh worker.
+    combo.workers[0].effort = Some("high".into());
+    delegation.set_combo("notes", combo).unwrap();
+    let error = delegation.delegate("notes", DelegateArgs { task: "Again".into(), continue_job: Some(first.id), ..Default::default() }).unwrap_err();
+    assert!(error.contains("configuration changed"), "{error}");
+    let fresh = delegation.delegate("notes", image_task()).unwrap();
+    assert!(!fresh.warm);
+    delegation.await_jobs("notes", &[fresh.id], Duration::from_secs(10), false).await.unwrap();
+    assert_eq!(launcher.revisions_under_lock.load(std::sync::atomic::Ordering::SeqCst), 0, "a revision was worked out under the state lock");
+    delegation.release("notes").await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

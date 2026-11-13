@@ -32,11 +32,6 @@ fn check_harness(state: &AppState, provider: Provider) -> CommandResult<()> {
 }
 
 #[tauri::command]
-pub fn claude_member_resources(workspace_id: Option<String>, state: State<'_, AppState>) -> CommandResult<CatalogView> {
-    member_resources_catalog(workspace_id, Provider::Claude, state)
-}
-
-#[tauri::command]
 pub fn member_resources_catalog(workspace_id: Option<String>, provider: Provider, state: State<'_, AppState>) -> CommandResult<CatalogView> {
     if !matches!(provider, Provider::Claude | Provider::Codex) { return Err(DesktopError::unsupported("Member resources require Claude Code or Codex")) }
     let root = workspace_id.map(|id| state.with_storage(|s| s.workspace_get(&id)).map_err(storage_error)?

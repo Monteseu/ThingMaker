@@ -11,7 +11,9 @@ mod skill_dependencies;
 pub use skill_dependencies::McpDependency;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+// No deny_unknown_fields: a field added later must not make an older build
+// reject the whole team that carries it.
+#[serde(rename_all = "camelCase")]
 pub struct ResourceSelection {
     pub skills: Vec<String>,
     pub mcps: Vec<String>,
@@ -28,6 +30,9 @@ pub struct ResourceEntry {
     pub available: bool,
     pub problem: Option<String>,
     pub source: String,
+    /// What an MCP server runs, or the host it connects to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
     pub mcp_dependencies: Vec<McpDependency>,
     pub dependency_notes: Vec<String>,
     #[serde(skip)]
@@ -98,7 +103,7 @@ fn add_skills(out: &mut Vec<ResourceEntry>, directory: &Path, group: &str, prefi
             description: description(&text, front.description), group: group.into(), available: enabled && !disabled,
             problem: if !enabled { Some("Plugin disabled for this project".into()) } else { disabled.then(|| "Manual-only or forked skill; not supported by the member pilot".into()) }, runtime_name, config: Value::Null,
             revision: format!("{}:{revision}", file.display()), source: if plugin.is_some() { "plugin".into() } else { ".claude/skills".into() },
-            skill_path: Some(file), bridge_skill: false, mcp_dependencies: Vec::new(), dependency_notes: Vec::new() });
+            skill_path: Some(file), bridge_skill: false, target: None, mcp_dependencies: Vec::new(), dependency_notes: Vec::new() });
     }
 }
 
@@ -114,10 +119,58 @@ fn add_mcps(out: &mut Vec<ResourceEntry>, value: &Value, group: &str, prefix: &s
             replace_plugin_root(&mut config, &root.to_string_lossy());
         }
         out.push(ResourceEntry { id: format!("mcp:{prefix}:{name}"), kind: "mcp".into(), name: runtime_name.clone(),
-            // Never put URLs, arguments, environment or headers in the public catalog.
-            description: "MCP server".into(), group: group.into(), available,
+            // Never put full URLs, arguments, environment or headers in the
+            // public catalog: only the program or the host, in `target`.
+            description: "MCP server".into(), group: group.into(), available, target: server_target(&config),
             problem: (!available).then(|| "Server disabled or unsupported transport".into()), runtime_name,
             revision: content_hash(serde_json::to_string(&config).unwrap_or_default().as_bytes()), config, source: if plugin.is_some() { "plugin".into() } else { ".claude".into() }, skill_path: None, bridge_skill: false, mcp_dependencies: Vec::new(), dependency_notes: Vec::new() });
+    }
+}
+
+/// What a server runs or where it connects, so the person can see what they
+/// are choosing: the program, or the URL's host. Never arguments, headers,
+/// environment, user info or query, which can carry credentials.
+fn server_target(config: &Value) -> Option<String> {
+    if let Some(command) = config.get("command").and_then(Value::as_str) {
+        return Some(command.to_string()).filter(|command| !command.is_empty());
+    }
+    let url = config.get("url").and_then(Value::as_str)?;
+    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let host = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
+    (!host.is_empty()).then(|| host.to_string())
+}
+
+/// Claude Code's own approval of a project's shared `.mcp.json` servers: a
+/// server it would not start is never offered. Approvals count only from the
+/// person's own files (user settings, `settings.local.json`, the project's
+/// entry in `.claude.json`), never from the committed `.claude/settings.json`,
+/// which the project's authors control; refusals count from all of them.
+#[derive(Default)]
+struct ProjectServerApproval {
+    all: bool,
+    enabled: Vec<String>,
+    disabled: Vec<String>,
+}
+
+impl ProjectServerApproval {
+    fn read(&mut self, value: &Value, trusted: bool) {
+        let names = |key: &str| value.get(key).and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect::<Vec<_>>();
+        if trusted {
+            self.all |= value.get("enableAllProjectMcpServers").and_then(Value::as_bool) == Some(true);
+            self.enabled.extend(names("enabledMcpjsonServers"));
+        }
+        self.disabled.extend(names("disabledMcpjsonServers"));
+    }
+
+    fn problem(&self, name: &str) -> Option<&'static str> {
+        if self.disabled.iter().any(|disabled| disabled == name) {
+            Some("Turned off for this project in Claude Code")
+        } else if !self.all && !self.enabled.iter().any(|enabled| enabled == name) {
+            Some("Project server not approved in Claude Code. Approve it there, then refresh.")
+        } else {
+            None
+        }
     }
 }
 
@@ -172,16 +225,24 @@ pub fn catalog_with_homes(home: &Path, config_dir: &Path, codex_home: &Path, roo
     let mut settings = read(&config_dir.join("settings.json"))?;
     let mut project_dirs = Vec::new();
     if let Some(root) = root {
-        for directory in root.ancestors() {
+        // The project's folders: up to its repository's top, or the workspace
+        // alone outside a repository. Never $HOME or above it: its .claude and
+        // .codex are the person's own, already read as user resources.
+        let real_home = home.canonicalize().ok();
+        let below_home = |directory: &&Path| *directory != home && Some(*directory) != real_home.as_deref();
+        let top = root.ancestors().take_while(below_home).find(|directory| directory.join(".git").exists()).unwrap_or(root);
+        for directory in root.ancestors().take_while(below_home) {
             project_dirs.push(directory.to_path_buf());
-            if directory.join(".git").exists() { break }
+            if directory == top { break }
         }
         project_dirs.reverse();
     }
     let mut enabled_plugins = BTreeMap::new();
     let mut disabled_mcps = Vec::new();
     let mut skill_overrides = BTreeMap::new();
-    let mut merge = |value: &Value| {
+    let mut approval = ProjectServerApproval::default();
+    let mut merge = |value: &Value, trusted: bool| {
+        approval.read(value, trusted);
         if let Some(plugins) = value.get("enabledPlugins").and_then(Value::as_object) {
             for (name, enabled) in plugins { enabled_plugins.insert(name.clone(), enabled.as_bool().unwrap_or(false)); }
         }
@@ -192,9 +253,9 @@ pub fn catalog_with_homes(home: &Path, config_dir: &Path, codex_home: &Path, roo
             for (name, mode) in overrides { skill_overrides.insert(name.clone(), mode.as_str().unwrap_or("on").to_string()); }
         }
     };
-    merge(&settings);
+    merge(&settings, true);
     for directory in &project_dirs {
-        for name in ["settings.json", "settings.local.json"] { merge(&read(&directory.join(".claude").join(name))?); }
+        for (name, trusted) in [("settings.json", false), ("settings.local.json", true)] { merge(&read(&directory.join(".claude").join(name))?, trusted); }
     }
     // The default account stores .claude.json beside ~/.claude; added accounts
     // have their own merged copy inside CLAUDE_CONFIG_DIR.
@@ -216,8 +277,17 @@ pub fn catalog_with_homes(home: &Path, config_dir: &Path, codex_home: &Path, roo
         add_codex_mcps(&mut entries, &directory.join(".codex/config.toml"), "project", &format!("codex-{prefix}"))?;
     }
     if let Some(root) = root {
-        add_mcps(&mut entries, &read(&root.join(".mcp.json"))?, "project", "project", None, true, None);
         let local = &settings["projects"][root.to_string_lossy().as_ref()];
+        approval.read(local, true);
+        let start = entries.len();
+        add_mcps(&mut entries, &read(&root.join(".mcp.json"))?, "project", "project", None, true, None);
+        // Before precedence: an unapproved project server replaces nothing.
+        for entry in entries[start..].iter_mut().filter(|entry| entry.available) {
+            if let Some(problem) = approval.problem(&entry.runtime_name) {
+                entry.available = false;
+                entry.problem = Some(problem.into());
+            }
+        }
         add_mcps(&mut entries, &local["mcpServers"], "project", "local", None, true, None);
         if let Some(disabled) = local["disabledMcpServers"].as_array() {
             disabled_mcps.extend(disabled.iter().filter_map(Value::as_str).map(str::to_string));
@@ -328,7 +398,7 @@ pub fn apply_to_launch(resources: ResolvedResources, launch: &mut crate::agents:
             let instructions = codex_instructions(&resources);
             options.developer_instructions = Some(format!("{}{instructions}", options.developer_instructions.as_deref().unwrap_or_default()));
             options.resources = Some(crate::agents::codex::launch::CodexResources {
-                skills: resources.skill_sources.into_iter().map(|skill| skill.path).collect(), mcps: resources.mcps,
+                skills: resources.skill_sources.into_iter().map(|skill| skill.path).collect(), mcps: crate::agents::codex::resources::server_names(resources.mcps),
             });
             Ok(None)
         }
@@ -598,5 +668,64 @@ mod tests {
         assert_eq!(resolved.mcps["paint"]["headers"]["Authorization"], "Bearer not-for-renderer");
         assert!(!serde_json::to_string(&found).unwrap().contains("not-for-renderer"));
         assert!(resolve(&found, &ResourceSelection { skills: vec![], mcps: vec!["mcp:user:paint".into(), "mcp:codex-user:paint".into()] }, &environment).is_err());
+    }
+
+    #[test]
+    fn a_workspace_outside_a_repository_never_reads_the_home_folder_as_its_project() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let root = home.join("work/project");
+        std::fs::create_dir_all(&root).unwrap();
+        write(&home.join(".codex/config.toml"), "[mcp_servers.paint]\ncommand = \"paint\"\n");
+        write(&home.join(".claude/settings.json"), r#"{"enabledPlugins":{}}"#);
+        write(&home.join("work/.codex/config.toml"), "[mcp_servers.parent]\ncommand = \"parent\"\n");
+        let found = catalog(&home, &home.join(".claude"), Some(&root)).unwrap();
+        assert!(found.entries.iter().find(|entry| entry.id == "mcp:codex-user:paint").unwrap().available, "the user's own server keeps its place");
+        assert!(found.entries.iter().all(|entry| !entry.id.contains("project-parent")), "no folder above a non-repository workspace is a project folder");
+        let resolved = resolve(&found, &ResourceSelection { skills: vec![], mcps: vec!["mcp:codex-user:paint".into()] }, &HashMap::new()).unwrap();
+        assert_eq!(resolved.mcps["paint"]["command"], "paint");
+        // Nor is $HOME itself, when it is the workspace.
+        write(&home.join(".codex/skills/art/SKILL.md"), "---\nname: art\ndescription: Draw\n---\n");
+        let at_home = catalog(&home, &home.join(".claude"), Some(&home)).unwrap();
+        assert!(at_home.entries.iter().all(|entry| entry.group != "project" || entry.source == ".claude"), "{:?}", at_home.entries.iter().map(|entry| &entry.id).collect::<Vec<_>>());
+        assert!(at_home.entries.iter().find(|entry| entry.id == "mcp:codex-user:paint").unwrap().available);
+    }
+
+    #[test]
+    fn project_servers_need_claude_approval_and_show_only_their_program_or_host() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let config = home.join(".claude");
+        let root = temp.path().join("project");
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        write(&root.join(".mcp.json"), &json!({"mcpServers":{
+            "listed":{"command":"listed-cli","args":["--token=secret-arg"]},
+            "local":{"type":"http","url":"https://user:secret-pass@mcp.example.test/path?key=secret-query","headers":{"Authorization":"secret-header"}},
+            "refused":{"command":"refused-cli"},
+            "committed":{"command":"committed-cli"},
+            "same":{"command":"project-same"},
+        }}).to_string());
+        write(&home.join(".claude.json"), &json!({"mcpServers":{"same":{"command":"user-same"}},
+            "projects":{root.to_string_lossy().as_ref():{"enabledMcpjsonServers":["listed"]}}}).to_string());
+        write(&root.join(".claude/settings.local.json"), r#"{"enabledMcpjsonServers":["local","refused"],"disabledMcpjsonServers":["refused"]}"#);
+        // The committed project settings cannot approve their own servers.
+        write(&root.join(".claude/settings.json"), r#"{"enabledMcpjsonServers":["committed","same"],"enableAllProjectMcpServers":true}"#);
+        let found = catalog(&home, &config, Some(&root)).unwrap();
+        let entry = |id: &str| found.entries.iter().find(|entry| entry.id == id).unwrap();
+        assert!(entry("mcp:project:listed").available);
+        assert!(entry("mcp:project:local").available);
+        assert!(!entry("mcp:project:refused").available);
+        assert!(!entry("mcp:project:committed").available);
+        assert!(!entry("mcp:project:same").available);
+        assert!(entry("mcp:user:same").available, "an unapproved project server replaces nothing");
+        assert_eq!(entry("mcp:project:listed").target.as_deref(), Some("listed-cli"));
+        assert_eq!(entry("mcp:project:local").target.as_deref(), Some("mcp.example.test"));
+        let public = serde_json::to_string(&found).unwrap();
+        assert!(!public.contains("secret"), "{public}");
+        assert!(resolve(&found, &ResourceSelection { skills: vec![], mcps: vec!["mcp:project:committed".into()] }, &HashMap::new()).is_err());
+        write(&config.join("settings.json"), r#"{"enableAllProjectMcpServers":true}"#);
+        let all = catalog(&home, &config, Some(&root)).unwrap();
+        assert!(all.entries.iter().find(|entry| entry.id == "mcp:project:committed").unwrap().available);
+        assert!(!all.entries.iter().find(|entry| entry.id == "mcp:project:refused").unwrap().available, "a refusal still wins");
     }
 }

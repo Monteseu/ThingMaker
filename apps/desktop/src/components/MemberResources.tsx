@@ -4,6 +4,7 @@ import { api } from "../ipc";
 import { useStore } from "../store";
 import { t } from "../i18n";
 import { SkillConnections } from "./SkillConnections";
+import { Segmented } from "./settings/controls";
 
 /** The workspace is a preview: saved references resolve against the actual
  * job workspace at launch. Selecting a group is a snapshot, never a wildcard. */
@@ -39,7 +40,7 @@ export function MemberResources({ worker, onChange }: { worker: WorkerSlot; onCh
   const selection = worker.resources ?? { skills: [], mcps: [] };
   const patch = (next: MemberResourceSelection) => onChange({ ...worker, resources: next });
   const kind = tab === "skills" ? "skill" : "mcp";
-  const visible = (catalog?.entries ?? []).filter((entry) => entry.kind === kind && `${entry.name} ${entry.description} ${entry.group} ${entry.source ?? ""}`.toLowerCase().includes(search.toLowerCase()));
+  const visible = (catalog?.entries ?? []).filter((entry) => entry.kind === kind && `${entry.name} ${entry.description} ${entry.group} ${entry.source ?? ""} ${entry.target ?? ""}`.toLowerCase().includes(search.toLowerCase()));
   const groups = [...new Set(visible.map((entry) => entry.group))].sort();
   const groupLabel = (group: string) => group === "user" ? t("Local · user") : group === "project" ? t("Local · project") : `${t("Plugin")} · ${group.slice(7)}`;
   const known = new Set(catalog?.entries.map((entry) => entry.id));
@@ -64,8 +65,7 @@ export function MemberResources({ worker, onChange }: { worker: WorkerSlot; onCh
           </select>
         </label>
         <div className="row wrap">
-          <button className="button button-small" aria-pressed={tab === "skills"} onClick={() => setTab("skills")} type="button">{t("Skills")} · {selection.skills.length}</button>
-          <button className="button button-small" aria-pressed={tab === "mcps"} onClick={() => setTab("mcps")} type="button">MCPs · {selection.mcps.length}</button>
+          <Segmented label={t("Resource type")} value={tab} onChange={setTab} choices={[{ value: "skills", label: `${t("Skills")} · ${selection.skills.length}` }, { value: "mcps", label: `MCPs · ${selection.mcps.length}` }]} />
           <button className="button button-small" onClick={() => setRefresh((value) => value + 1)} type="button">{t("Refresh")}</button>
           <input className="input" aria-label={t("Search resources")} placeholder={t("Search resources")} value={search} onChange={(event) => setSearch(event.target.value)} />
         </div>
@@ -84,7 +84,7 @@ export function MemberResources({ worker, onChange }: { worker: WorkerSlot; onCh
               <button className="button button-small" disabled={available.length === 0} type="button" onClick={() => patch({ ...selection, [tab]: all ? selection[tab].filter((id) => !available.includes(id)) : [...new Set([...selection[tab], ...available])] })}>{all ? t("Deselect group") : t("Select group")}</button>
               {entries.map((entry) => <label className={`member-resource ${entry.available ? "" : "muted"}`} key={entry.id}>
                 <input type="checkbox" aria-label={entry.name} checked={selection[tab].includes(entry.id)} disabled={!entry.available && !selection[tab].includes(entry.id)} onChange={(event) => patch({ ...selection, [tab]: event.target.checked ? [...selection[tab], entry.id] : selection[tab].filter((id) => id !== entry.id) })} />
-                <span><strong>{entry.name}</strong>{entry.source && <span className="small muted">{entry.source}</span>}<span className="small muted">{entry.problem ?? entry.description}</span></span>
+                <span><strong>{entry.name}</strong>{entry.source && <span className="small muted">{entry.source}</span>}{entry.target && <span className="small muted">{entry.target}</span>}<span className="small muted">{entry.problem ?? entry.description}</span></span>
               </label>)}
             </details>;
           })}

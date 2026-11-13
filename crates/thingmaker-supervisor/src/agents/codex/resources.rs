@@ -4,6 +4,27 @@ use std::{collections::BTreeSet, path::Path};
 use serde_json::{Map, Value, json};
 use super::launch::CodexResources;
 
+/// Codex accepts only `^[a-zA-Z0-9_-]+$` as a server name, and every selected
+/// server is required, so a name like `plugin:art:paint` would stop the
+/// worker. Other names become their valid characters plus a hash of the
+/// original: stable across launches, and never the same as another server's.
+pub fn server_names(mcps: std::collections::BTreeMap<String, Value>) -> std::collections::BTreeMap<String, Value> {
+    let valid = |name: &str| !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    let (mut out, renamed): (std::collections::BTreeMap<_, _>, std::collections::BTreeMap<_, _>) = mcps.into_iter().partition(|(name, _)| valid(name));
+    for (name, server) in renamed {
+        let cleaned: String = name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect();
+        let hash = crate::storage::content_hash(name.as_bytes());
+        let mut length = 8;
+        let mut codex = format!("{}_{}", cleaned.trim_matches('_'), &hash[..length]);
+        while out.contains_key(&codex) && length < hash.len() {
+            length += 8;
+            codex = format!("{}_{}", cleaned.trim_matches('_'), &hash[..length]);
+        }
+        out.insert(codex, server);
+    }
+    out
+}
+
 pub fn overrides(effective: &Value, discovered: &Value, selected: &CodexResources) -> Result<Map<String, Value>, String> {
     let rows = discovered["data"].as_array().ok_or("Codex did not provide a skills inventory")?;
     let mut rules = Vec::new();
@@ -81,5 +102,24 @@ mod tests {
         assert_eq!(config["plugins"]["qa@market"]["enabled"], false);
         assert_eq!(config["skills.config"].as_array().unwrap().last().unwrap()["enabled"], true);
         assert_eq!(config["skills.include_instructions"], false);
+    }
+
+    #[test]
+    fn server_names_codex_refuses_are_renamed_stably_and_without_collisions() {
+        let valid = |name: &str| !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+        let selected = std::collections::BTreeMap::from([
+            ("plugin:art:paint".to_string(), json!({"command":"paint"})),
+            ("plugin_art_paint".to_string(), json!({"command":"other"})),
+            ("plugin:art.paint".to_string(), json!({"command":"third"})),
+            ("files".to_string(), json!({"command":"files"})),
+        ]);
+        let named = server_names(selected.clone());
+        assert_eq!(named.len(), 4);
+        assert!(named.keys().all(|name| valid(name)), "{named:?}");
+        assert_eq!(named["files"]["command"], "files");
+        assert_eq!(named["plugin_art_paint"]["command"], "other", "a valid name is kept");
+        let renamed: Vec<_> = named.iter().filter(|(name, _)| name.starts_with("plugin_art_paint_")).map(|(_, server)| server["command"].clone()).collect();
+        assert_eq!(renamed.len(), 2);
+        assert_eq!(server_names(selected), named, "the same selection gets the same names");
     }
 }

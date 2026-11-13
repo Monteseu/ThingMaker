@@ -121,3 +121,29 @@ it("shows disabled dependencies without offering to enable them", async () => {
   expect(within(dependencies).getByText("Unsupported transport")).toBeTruthy();
   expect(latest.resources?.mcps).toEqual([]);
 });
+
+it("never switches on an unapproved project server and shows what each server runs", async () => {
+  vi.mocked(api.memberResources).mockResolvedValue({ ...catalog, entries: [
+    { ...catalog.entries[0]!, mcpDependencies: [{ name: "paint", evidence: "declared", required: true, mcpIds: ["mcp:project:paint", "mcp:user:paint"] }] },
+    { ...catalog.entries[2]!, target: "paint.example.test" },
+    { ...catalog.entries[2]!, id: "mcp:project:paint", group: "project", target: "paint-cli", available: false, problem: "Project server not approved in Claude Code. Approve it there, then refresh." },
+  ] });
+  render(<Editor worker={{ ...initial, resources: { skills: ["skill:user:art"], mcps: [] } }} />);
+  const dependencies = await screen.findByRole("region", { name: "Connections for selected skills" });
+  expect(within(dependencies).getByText(/paint-cli/)).toBeTruthy();
+  fireEvent.click(within(dependencies).getByRole("button", { name: "Activate unambiguous connections" }));
+  expect(latest.resources?.mcps, "only the approved definition is a candidate").toEqual(["mcp:user:paint"]);
+  fireEvent.click(screen.getByRole("button", { name: /MCPs/ }));
+  expect(screen.getByText("paint.example.test")).toBeTruthy();
+  expect((screen.getAllByRole("checkbox", { name: "paint" }).find((box) => !(box as HTMLInputElement).checked) as HTMLInputElement).disabled).toBe(true);
+});
+
+it("points a missing connection to Settings › Integrations", async () => {
+  vi.mocked(api.memberResources).mockResolvedValue({ ...catalog, entries: [
+    { ...catalog.entries[0]!, mcpDependencies: [{ name: "missing", evidence: "declared", required: true, mcpIds: [] }] },
+  ] });
+  render(<Editor worker={{ ...initial, resources: { skills: ["skill:user:art"], mcps: [] } }} />);
+  const dependencies = await screen.findByRole("region", { name: "Connections for selected skills" });
+  fireEvent.click(within(dependencies).getByRole("button", { name: "Open integration configuration" }));
+  expect(useStore.getState().view).toEqual({ kind: "settings", tab: "integrations" });
+});
