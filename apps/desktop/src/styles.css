@@ -7989,6 +7989,32 @@ html[data-platform="android"] { --traffic-lights: 8px; --titlebar: 52px; height:
   border-color: rgba(95, 191, 122, 0.35);
 }
 
+.local-foldout > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.local-foldout > summary::-webkit-details-marker {
+  display: none;
+}
+
+.local-foldout-arrow {
+  font-size: 24px;
+  color: var(--muted);
+  transition: transform 0.15s;
+}
+
+.local-foldout[open] .local-foldout-arrow {
+  transform: rotate(90deg);
+}
+
+.local-foldout-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 14px 12px;
+}
+
 .local-body {
   display: flex;
   flex-direction: column;
