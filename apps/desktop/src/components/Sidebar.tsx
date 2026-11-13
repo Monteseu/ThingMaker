@@ -7,7 +7,7 @@ import { useStore, sessionTitle, basenameOf as basename } from "../store";
 import { api } from "../ipc";
 import { ProviderBadge } from "./ProviderMark";
 import { NavArrows } from "./TopBar";
-import { UsageMeter } from "./UsageMeter";
+import { pairWindows, UsageMeter, type WindowPair } from "./UsageMeter";
 import { ProviderLogo } from "./ProviderLogo";
 import { WipeDialog } from "./WipeDialog";
 import { t } from "../i18n";
@@ -926,19 +926,18 @@ export function Sidebar() {
             const snapshot = usage[provider];
             if (!snapshot?.primary) return null;
             const title = t("{provider}, account-wide. Details in a session's Context tab.", { provider: `${PROVIDER_LABELS[provider]}${snapshot.planType ? ` (${snapshot.planType})` : ""}` });
-            const windows = snapshot.windows ?? [snapshot.primary, ...(snapshot.secondary ? [snapshot.secondary] : [])];
-            const columns = snapshot.windows ? 1 : 2;
-            return Array.from({ length: Math.ceil(windows.length / columns) }, (_, row) => {
-              const first = windows[row * columns]!;
-              const second = columns === 2 ? windows[row * columns + 1] : undefined;
-              return (
-                <div className={`sidebar-meter-row ${columns === 1 ? "sidebar-meter-row-model" : ""}`} key={`${provider}-${row}`} title={snapshot.limitReached ? `${title} · ${t("limit reached")}` : title}>
-                  <span className={`sidebar-meter-name ${snapshot.limitReached ? "sidebar-meter-limit" : ""}`}>{row === 0 && <ProviderLogo provider={provider} size={16} />}</span>
-                  <UsageMeter usage={first} />
-                  {columns === 2 && (second ? <UsageMeter usage={second} /> : <span />)}
-                </div>
-              );
-            });
+            const pairs: WindowPair[] = snapshot.windows
+              ? pairWindows(snapshot.windows)
+              : [{ short: snapshot.primary, ...(snapshot.secondary ? { long: snapshot.secondary } : {}) }];
+            return pairs.map((pair, row) => (
+              <div className="sidebar-meter-row" key={`${provider}-${row}`} title={snapshot.limitReached ? `${title} · ${t("limit reached")}` : title}>
+                <span className={`sidebar-meter-name ${snapshot.limitReached ? "sidebar-meter-limit" : ""}`}>{row === 0 && <ProviderLogo provider={provider} size={16} />}</span>
+                {pair.short
+                  ? <UsageMeter usage={pair.short} {...(pair.group ? { shortName: `${pair.group} · 5h` } : {})} />
+                  : <span className="sidebar-meter-group">{pair.group}</span>}
+                {pair.long ? <UsageMeter usage={pair.long} {...(pair.group ? { shortName: "7d" } : {})} /> : <span />}
+              </div>
+            ));
           })}
         </div>}
         {IS_REMOTE && <PhoneAppSettings />}
