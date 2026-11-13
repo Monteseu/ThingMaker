@@ -7,16 +7,31 @@ import { IS_REMOTE } from "../remote/mode";
 import { useEffect } from "react";
 import { basenameOf, sessionTitle, useStore, viewExists } from "../store";
 import { navTarget } from "../navHistory";
-import { IconBack, IconBranch, IconCommand, IconExport, IconForward, IconPlug, IconSidebar } from "./icons";
+import { IconBack, IconBranch, IconExport, IconForward, IconSidebar } from "./icons";
 import { t } from "../i18n";
 import { UpdateButton } from "./AppUpdate";
+
+/** Back and forward through the places visited, as in a browser (⌘[ ⌘]). */
+export function NavArrows() {
+  const navigate = useStore((s) => s.navigate);
+  const canGoBack = useStore((s) => navTarget(s.navHistory, s.navIndex, -1, (v) => viewExists(s, v)) !== null);
+  const canGoForward = useStore((s) => navTarget(s.navHistory, s.navIndex, 1, (v) => viewExists(s, v)) !== null);
+  return (
+    <div className="topbar-nav">
+      <button aria-label={t("Back")} className="icon-button" disabled={!canGoBack} onClick={() => navigate(-1)} title={t("Back (⌘[)")} type="button">
+        <IconBack />
+      </button>
+      <button aria-label={t("Forward")} className="icon-button" disabled={!canGoForward} onClick={() => navigate(1)} title={t("Forward (⌘])")} type="button">
+        <IconForward />
+      </button>
+    </div>
+  );
+}
 
 export function TopBar() {
   const view = useStore((s) => s.view);
   const sessions = useStore((s) => s.sessions);
   const workspaces = useStore((s) => s.workspaces);
-  const setView = useStore((s) => s.setView);
-  const setPaletteOpen = useStore((s) => s.setPaletteOpen);
   const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useStore((s) => s.toggleSidebar);
   const repoInfo = useStore((s) => s.repoInfo);
@@ -24,9 +39,6 @@ export function TopBar() {
   const setSessionTab = useStore((s) => s.setSessionTab);
   const exportTranscript = useStore((s) => s.exportTranscript);
   const records = useStore((s) => s.records);
-  const navigate = useStore((s) => s.navigate);
-  const canGoBack = useStore((s) => navTarget(s.navHistory, s.navIndex, -1, (v) => viewExists(s, v)) !== null);
-  const canGoForward = useStore((s) => navTarget(s.navHistory, s.navIndex, 1, (v) => viewExists(s, v)) !== null);
 
   // The workspace whose git head the bar describes: the focused session's, or
   // the selected workspace.
@@ -54,7 +66,6 @@ export function TopBar() {
   } else if (view.kind === "signin") title = t("Sign-in");
   else if (view.kind === "settings") title = t("Settings");
   else if (view.kind === "teams") title = t("Teams");
-  else if (view.kind === "integrations") title = t("Integrations");
 
   return (
     <header className={`topbar ${sidebarCollapsed && !IS_REMOTE ? "topbar-inset" : ""}`} data-tauri-drag-region>
@@ -63,20 +74,14 @@ export function TopBar() {
           <IconSidebar />
         </button>
       )}
+      {/* The arrows sit in the sidebar's top row; with the sidebar hidden they come here. */}
       {sidebarCollapsed && !IS_REMOTE && (
-        <button aria-label={t("Show sidebar (⌘B)")} className="icon-button" onClick={toggleSidebar} title={t("Show sidebar (⌘B)")} type="button">
-          <IconSidebar />
-        </button>
-      )}
-      {!IS_REMOTE && (
-        <div className="topbar-nav">
-          <button aria-label={t("Back")} className="icon-button" disabled={!canGoBack} onClick={() => navigate(-1)} title={t("Back (⌘[)")} type="button">
-            <IconBack />
+        <>
+          <button aria-label={t("Show sidebar (⌘B)")} className="icon-button" onClick={toggleSidebar} title={t("Show sidebar (⌘B)")} type="button">
+            <IconSidebar />
           </button>
-          <button aria-label={t("Forward")} className="icon-button" disabled={!canGoForward} onClick={() => navigate(1)} title={t("Forward (⌘])")} type="button">
-            <IconForward />
-          </button>
-        </div>
+          <NavArrows />
+        </>
       )}
       <div className="topbar-title" data-tauri-drag-region>
         <span className="topbar-name" data-tauri-drag-region>
@@ -120,17 +125,7 @@ export function TopBar() {
       </div>
       <div className="topbar-actions">
         {!IS_REMOTE && <UpdateButton />}
-        <button
-          className={`icon-button remote-hidden ${view.kind === "integrations" ? "on" : ""}`}
-          onClick={() => setView({ kind: "integrations" })}
-          title={t("MCP, plugins, skills and harnesses (⌘I)")}
-          type="button"
-        >
-          <IconPlug />
-        </button>
-        <button className="icon-button remote-hidden" onClick={() => setPaletteOpen(true)} title={t("Command palette (⌘K)")} type="button">
-          <IconCommand />
-        </button>
+        <img alt="ThingMaker" className="brand-icon topbar-logo" data-tauri-drag-region draggable={false} src={`${import.meta.env.BASE_URL}thingmaker-icon.png`} title="ThingMaker" />
       </div>
     </header>
   );

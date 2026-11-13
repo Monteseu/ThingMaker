@@ -6,6 +6,7 @@ import { PROVIDERS, PROVIDER_LABELS } from "@thingmaker/contracts";
 import { useStore, sessionTitle, basenameOf as basename } from "../store";
 import { api } from "../ipc";
 import { ProviderBadge } from "./ProviderMark";
+import { NavArrows } from "./TopBar";
 import { UsageMeter } from "./UsageMeter";
 import { ProviderLogo } from "./ProviderLogo";
 import { WipeDialog } from "./WipeDialog";
@@ -640,13 +641,8 @@ export function Sidebar() {
         <button aria-label={t("Hide sidebar (⌘B)")} className="icon-button remote-hidden" onClick={toggleSidebar} title={t("Hide sidebar (⌘B)")} type="button">
           <IconSidebar />
         </button>
-        <span className="sidebar-brand" data-tauri-drag-region>
-          <img className="brand-icon" src={`${import.meta.env.BASE_URL}thingmaker-icon.png`} alt="" draggable={false} />
-          ThingMaker
-        </span>
-        <button aria-label={t("Add workspace (⌘O)")} className="icon-button remote-hidden" onClick={() => void addWorkspaceByPicker()} title={t("Add workspace (⌘O)")} type="button">
-          <IconPlus />
-        </button>
+        <span className="sidebar-top-spacer" data-tauri-drag-region />
+        {!IS_REMOTE && <NavArrows />}
       </div>
 
       <div className={`sidebar-body ${scrolling ? "scrolling" : ""}`} onScroll={onScroll} ref={body}>
@@ -695,6 +691,15 @@ export function Sidebar() {
           </section>
         )}
 
+        {workspaces.length > 0 && (
+          <div className="sidebar-section-head">
+            <span>{t("Projects")}</span>
+            <button aria-label={t("Add a project (⌘O)")} className="icon-button icon-button-xs remote-hidden" onClick={() => void addWorkspaceByPicker()} title={t("Add a project (⌘O)")} type="button">
+              <IconPlus size={14} />
+            </button>
+          </div>
+        )}
+
         {groups.map(({ workspace, inspection, trusted, project, liveCount, unpinned, pinnedRows, archivedRows }) => {
           const selected = view.kind === "workspace" && view.workspaceId === workspace.id;
           const isCollapsed = collapsed[workspace.id] ?? false;
@@ -720,7 +725,8 @@ export function Sidebar() {
                     <IconFolder size={14} />
                   </span>
                   <span className="sidebar-title">{project}</span>
-                  <span className={`trust-dot ${trusted ? "trust-ok" : "trust-warn"}`} title={inspection?.trustStale ? t("configuration changed: re-review") : trusted ? t("trusted local") : t("not trusted yet")} />
+                  {/* Only a project that needs a look gets a mark; a trusted one needs none. */}
+                  {inspection && !trusted && <span className="trust-dot trust-warn" title={inspection?.trustStale ? t("configuration changed: re-review") : t("not trusted yet")} />}
                 </button>
                 <span className="ws-actions">
                   <button

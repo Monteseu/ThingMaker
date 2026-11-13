@@ -1,7 +1,8 @@
 /**
- * MCP servers in the Integrations panel: a short catalog to install from in
- * one click, a box to paste any config or command into, a test start before
- * anything is written, and what each provider already has.
+ * MCP servers in Settings › Integrations: what each provider already has,
+ * and, when asked for, a short catalog to install from in one click, a box to
+ * paste any config or command into, and a test start before anything is
+ * written.
  *
  * Installing runs each provider's own `mcp add`, so the server lands where
  * that provider reads it — in ThingMaker's sessions and in the provider's own
@@ -12,7 +13,8 @@ import { PROVIDER_LABELS, type InstalledMcpServer, type McpCatalogEntry, type Mc
 import { api } from "../ipc";
 import { useStore } from "../store";
 import { t } from "../i18n";
-import { ProviderBadge } from "./ProviderMark";
+import { ProviderBadge, ProviderMark } from "./ProviderMark";
+import { Fold, FoldItem } from "./settings/controls";
 
 const PROVIDER_NAME: Record<Provider, string> = { ...PROVIDER_LABELS, gemini: "Antigravity (Gemini)" };
 
@@ -166,7 +168,7 @@ function InstallCard({
           {draft.kind === "http" ? t("+ add a header") : t("+ add a variable")}
         </button>
         <span className="small muted">
-          {t("Keep secrets out of config files: store them under")} <strong>{t("Runtime environment")}</strong> {t("below and write")}{" "}
+          {t("Keep secrets out of config files: store them under")} <strong>{t("Secrets")}</strong> {t("below and write")}{" "}
           <span className="mono">{"${NAME}"}</span> {t("here. Claude Code reads the reference itself; for Codex the variable is forwarded from the session.")}
         </span>
         {missing.length > 0 && <span className="small chip-warn">{t("Not in the runtime environment yet: {names}.", { names: missing.join(", ") })}</span>}
@@ -253,6 +255,7 @@ export function McpSection({ workspaceId }: { workspaceId: string | null }) {
   const [paste, setPaste] = useState("");
   const [pending, setPending] = useState<{ spec: McpServerSpec; needs?: string }[]>([]);
   const [note, setNote] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -284,6 +287,7 @@ export function McpSection({ workspaceId }: { workspaceId: string | null }) {
         ? { ...entry.spec, transport: { ...entry.spec.transport, args: entry.spec.transport.args.map((arg) => arg.replace("{folder}", overview?.folder ?? ".")) } }
         : entry.spec;
     setPending([{ spec, ...(entry.needs ? { needs: entry.needs } : {}) }]);
+    setAdding(false);
   };
 
   const read = async () => {
@@ -291,23 +295,28 @@ export function McpSection({ workspaceId }: { workspaceId: string | null }) {
       const specs = await api.mcpParse(paste);
       setPending(specs.map((spec) => ({ spec })));
       setPaste("");
+      setAdding(false);
     } catch (error) {
       setError(error);
     }
   };
 
-  const remove = async (server: InstalledMcpServer) => {
+  /** Takes a server out of every provider that has it in a place ThingMaker can write. */
+  const remove = async (name: string, servers: InstalledMcpServer[]) => {
+    const removable = servers.filter((server) => server.scope !== "project");
+    if (removable.length === 0) return;
+    const providers = removable.map((server) => PROVIDER_NAME[server.provider]).join(", ");
     const confirmed = await api.confirmDialog({
-      title: t("Remove {name} from {provider}?", { name: server.name, provider: PROVIDER_NAME[server.provider] }),
-      message: t("{provider}'s own mcp remove takes it out of {source}. Sessions started afterwards no longer have it.", { provider: PROVIDER_NAME[server.provider], source: server.source }),
+      title: t("Remove {name}?", { name }),
+      message: t("It is taken out of {providers} with each one's own mcp remove. Sessions started afterwards no longer have it.", { providers }),
       okLabel: t("Remove"),
       cancelLabel: t("Keep it"),
       warning: true,
     });
     if (!confirmed) return;
     try {
-      await api.mcpRemove(workspaceId, server.provider, server.name, server.scope);
-      setNote(t("Removed {name} from {provider}.", { name: server.name, provider: PROVIDER_NAME[server.provider] }));
+      for (const server of removable) await api.mcpRemove(workspaceId, server.provider, server.name, server.scope);
+      setNote(t("Removed {name}.", { name }));
       await load();
     } catch (error) {
       setError(error);
@@ -315,14 +324,54 @@ export function McpSection({ workspaceId }: { workspaceId: string | null }) {
   };
 
   const installedNames = new Set(overview?.servers.map((server) => server.name));
+  const disabled = (overview?.servers ?? []).filter((server) => !server.enabled).length;
 
   return (
-    <section className="mcp-section">
-      <h3>{t("MCP servers")}</h3>
-      <p className="small muted">
-        {t("Tools agents can call: a browser, your issue tracker, a design file. Installing writes the server through each provider\u2019s own")}{" "}
-        <span className="mono">mcp add</span>{t(", so it works in ThingMaker\u2019s sessions and in the provider\u2019s own app, from the next session on.")}
-      </p>
+    <Fold
+      hint={t("Outside tools agents can use, like a browser or a design file")}
+      name={t("MCP servers")}
+      summary={grouped.length === 1 ? t("1 server") : t("{n} servers", { n: grouped.length })}
+    >
+      {grouped.map(([name, servers]) => {
+        const scopes = new Set(servers.map((server) => server.scope));
+        const keys = [...new Set(servers.flatMap((server) => [...server.envKeys, ...server.headerKeys]))];
+        return (
+          <FoldItem
+            actions={
+              servers.some((server) => server.scope !== "project") && (
+                <button className="set-link set-link-danger" onClick={() => void remove(name, servers)} type="button">
+                  {t("Remove")}
+                </button>
+              )
+            }
+            key={name}
+          >
+            <span className={`set-dot ${servers.every((server) => server.enabled) ? "set-dot-ok" : "set-dot-warn"}`} title={servers.every((server) => server.enabled) ? t("Enabled") : t("Disabled for some providers")} />
+            <span className="set-item-text mono" title={servers[0]?.summary}>
+              {name}
+            </span>
+            <span className="set-marks">
+              {servers.map((server) => (
+                <span key={`${server.provider}-${server.scope}`} title={PROVIDER_NAME[server.provider]}>
+                  <ProviderMark provider={server.provider} size={14} />
+                </span>
+              ))}
+            </span>
+            <span className="set-chip">{scopes.has("user") ? t("Every project") : scopes.has("local") ? t("This project") : ".mcp.json"}</span>
+            {keys.length > 0 && <span className="set-item-note">{t("uses {keys}", { keys: keys.join(", ") })}</span>}
+          </FoldItem>
+        );
+      })}
+      {grouped.length === 0 && <p className="set-item-note">{t("No servers yet.")}</p>}
+      {disabled > 0 && <p className="set-item-note">{t("{n} turned off in a provider's own settings.", { n: disabled })}</p>}
+      {note && (
+        <p className="set-item-note">
+          {note}{" "}
+          <button className="set-link" onClick={() => setNote(null)} type="button">
+            {t("dismiss")}
+          </button>
+        </p>
+      )}
 
       {pending.length > 0 && overview ? (
         <div className="mcp-pending">
@@ -343,88 +392,60 @@ export function McpSection({ workspaceId }: { workspaceId: string | null }) {
             />
           ))}
         </div>
-      ) : (
-        <>
-          <div className="mcp-catalog">
-            {catalog.map((entry) => (
-              <div className="card mcp-catalog-entry" key={entry.id}>
-                <div className="row wrap">
-                  <strong>{entry.title}</strong>
-                  {installedNames.has(entry.spec.name) && <span className="chip small chip-active">{t("installed")}</span>}
-                </div>
-                <p className="small muted">{entry.description}</p>
-                {entry.secrets.length > 0 && <p className="small muted">{t("Needs {list}.", { list: entry.secrets.map(([name, where]) => `${name} (${where})`).join(", ") })}</p>}
-                <div className="row wrap">
-                  <button className="button button-small" onClick={() => fromCatalog(entry)} type="button">
+      ) : adding ? (
+        <div className="set-add">
+          {catalog.map((entry) => (
+            <FoldItem
+              actions={
+                <>
+                  <button className="set-link" onClick={() => void api.openExternal(entry.homepage)} type="button">
+                    {t("About")}
+                  </button>
+                  <button className="set-button" onClick={() => fromCatalog(entry)} type="button">
                     {installedNames.has(entry.spec.name) ? t("Reinstall…") : t("Install…")}
                   </button>
-                  <button className="link small" onClick={() => void api.openExternal(entry.homepage)} type="button">
-                    {t("about")}
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="mcp-paste">
+                </>
+              }
+              key={entry.id}
+            >
+              <span className="set-item-text">{entry.title}</span>
+              <span className="set-item-note" title={entry.secrets.length > 0 ? t("Needs {list}.", { list: entry.secrets.map(([name, where]) => `${name} (${where})`).join(", ") }) : undefined}>
+                {entry.description}
+              </span>
+            </FoldItem>
+          ))}
+          <div className="set-paste">
             <textarea
               aria-label={t("Paste an MCP config or command")}
-              className="textarea mono"
+              className="set-textarea mono"
               onChange={(event) => setPaste(event.target.value)}
-              placeholder={t("Paste a server from its README: {config}, {claude}, {codex} or just {npx}", {
+              placeholder={t("Or paste one from its README: {config}, {claude}, {codex} or {npx}", {
                 config: '{"mcpServers": {…}}',
                 claude: '"claude mcp add …"',
                 codex: '"codex mcp add …"',
                 npx: '"npx -y some-mcp-server"',
               })}
-              rows={3}
+              rows={2}
               value={paste}
             />
-            <button className="button" disabled={!paste.trim()} onClick={() => void read()} type="button">
-              {t("Read it")}
-            </button>
+            <div className="set-actions">
+              <button className="set-button" disabled={!paste.trim()} onClick={() => void read()} type="button">
+                {t("Read it")}
+              </button>
+              <button className="set-link" onClick={() => setAdding(false)} type="button">
+                {t("Cancel")}
+              </button>
+            </div>
           </div>
-        </>
-      )}
-
-      {note && (
-        <p className="small">
-          {note}{" "}
-          <button className="link small" onClick={() => setNote(null)} type="button">
-            {t("dismiss")}
-          </button>
-        </p>
-      )}
-
-      <h4 className="small">{t("Installed")}</h4>
-      {grouped.length === 0 ? (
-        <p className="small muted">{t("No MCP servers configured for any provider yet.")}</p>
+        </div>
       ) : (
-        <ul className="call-list">
-          {grouped.map(([name, servers]) => (
-            <li className="card mcp-installed" key={name}>
-              <div className="row wrap">
-                <strong className="mono">{name}</strong>
-                <span className="small muted mono mcp-summary">{servers[0]?.summary}</span>
-              </div>
-              {servers.map((server) => (
-                <div className="row wrap mcp-installed-row" key={`${server.provider}-${server.scope}`}>
-                  <ProviderBadge provider={server.provider} />
-                  <span className="small">{PROVIDER_NAME[server.provider]}</span>
-                  <span className="chip small">{server.scope === "user" ? t("every project") : server.scope === "local" ? t("this project") : t("shared {file}", { file: ".mcp.json" })}</span>
-                  {!server.enabled && <span className="chip small chip-warn">{t("disabled")}</span>}
-                  {[...server.envKeys, ...server.headerKeys].length > 0 && <span className="small muted">{t("uses {keys}", { keys: [...server.envKeys, ...server.headerKeys].join(", ") })}</span>}
-                  <span className="composer-spacer" />
-                  {server.scope !== "project" && (
-                    <button className="link small" onClick={() => void remove(server)} type="button">
-                      {t("remove")}
-                    </button>
-                  )}
-                </div>
-              ))}
-            </li>
-          ))}
-        </ul>
+        <div className="set-actions">
+          <button className="set-button" onClick={() => setAdding(true)} type="button">
+            {t("Add a server")}
+          </button>
+          <span className="set-item-note">{t("Installed with each provider's own mcp add, so it works in their apps too")}</span>
+        </div>
       )}
-    </section>
+    </Fold>
   );
 }

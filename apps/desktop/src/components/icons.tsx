@@ -153,6 +153,12 @@ export const IconBranch = (p: IconProps) => (
     <path d="M6 7v10M8 9h4a4 4 0 0 0 4-4v0" />
   </Svg>
 );
+export const IconCopy = (p: IconProps) => (
+  <Svg {...p}>
+    <rect height="12" rx="2" width="12" x="9" y="9" />
+    <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
+  </Svg>
+);
 export const IconCode = (p: IconProps) => (
   <Svg {...p}>
     <path d="m9 17-5-5 5-5M15 7l5 5-5 5" />

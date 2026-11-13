@@ -328,7 +328,7 @@ export function ContextPane({ sessionId }: { sessionId: string }) {
                 {note}
               </p>
             ))}
-            <button className="link" onClick={() => setView({ kind: "integrations" })} type="button">
+            <button className="link" onClick={() => setView({ kind: "settings", tab: "integrations" })} type="button">
               {t("Open integration configuration")}
             </button>
           </>

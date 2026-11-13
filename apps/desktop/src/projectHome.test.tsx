@@ -107,7 +107,6 @@ describe("a project's home", () => {
     useStore.setState({ openSession } as never);
     render(<WorkspaceView workspaceId="w1" />);
     expect(screen.getByText("~/hunted")).toBeTruthy();
-    expect(screen.getByText("No instructions or MCP servers in this project")).toBeTruthy();
     expect(screen.queryByText("Task 8")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Show all 10" }));
     expect(screen.getByText("Task 9")).toBeTruthy();

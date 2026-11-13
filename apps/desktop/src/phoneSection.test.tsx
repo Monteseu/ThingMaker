@@ -52,8 +52,8 @@ describe("how the phone reaches this computer", () => {
     extra = { mode: "relay", directUrl: null, listening: [] };
     render(<PhoneSection />);
     await settle();
-    expect(screen.getByText("connected")).toBeTruthy();
-    expect(screen.getByText(/Cloudflare Access on/)).toBeTruthy();
+    expect(screen.getByText("Connected through your Cloudflare relay")).toBeTruthy();
+    expect(screen.getByText("Cloudflare Access").nextElementSibling?.textContent).toBe("On");
     expect(pairButton().disabled).toBe(false);
   });
 
@@ -62,7 +62,7 @@ describe("how the phone reaches this computer", () => {
     extra = { mode: "relay", directUrl: null, listening: [] };
     render(<PhoneSection />);
     await settle();
-    fireEvent.click(screen.getByRole("button", { name: "change" }));
+    fireEvent.click(screen.getByRole("button", { name: "Change" }));
     fireEvent.click(screen.getByRole("radio", { name: "Direct, through my own tunnel" }));
     expect(screen.getByText(/cloudflared tunnel --url http:\/\/127.0.0.1:47321/)).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Tunnel address"), { target: { value: "https://thingmaker.example.com" } });
@@ -77,7 +77,7 @@ describe("how the phone reaches this computer", () => {
     extra = { mode: "direct", directUrl: "https://thingmaker.example.com", listening: ["127.0.0.1:47321"] };
     render(<PhoneSection />);
     await settle();
-    expect(screen.getByText(/forwarded to 127.0.0.1:47321/)).toBeTruthy();
+    expect(screen.getByText("Forwarded to").nextElementSibling?.textContent).toBe("127.0.0.1:47321");
     expect(pairButton().disabled).toBe(false);
   });
 

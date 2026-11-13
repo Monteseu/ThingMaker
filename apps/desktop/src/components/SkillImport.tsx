@@ -71,7 +71,8 @@ export function SkillImport({ workspaceId, onDone }: { workspaceId: string | nul
         else if (event.payload.type === "leave") setDropping(false);
         else if (event.payload.type === "drop") {
           setDropping(false);
-          if (useStore.getState().view.kind !== "integrations") return;
+          const view = useStore.getState().view;
+          if (view.kind !== "settings" || view.tab !== "integrations") return;
           void stage("paths", event.payload.paths);
         }
       })
@@ -116,20 +117,14 @@ export function SkillImport({ workspaceId, onDone }: { workspaceId: string | nul
   const collisions = plan?.skills.filter((s) => selected.has(s.directoryName) && s.collidesWith) ?? [];
 
   return (
-    <div className={`card skill-import ${dropping ? "drop-target" : ""}`}>
-      <div className="row wrap">
-        <strong>{t("Import skills")}</strong>
-        <button className="button button-small" disabled={busy} onClick={() => void stage("folder")} type="button">
-          {t("From folder…")}
-        </button>
-        <button className="button button-small" disabled={busy} onClick={() => void stage("zip")} type="button">
-          {t("From .zip…")}
-        </button>
-        <span className="small muted">
-          {t("or drop a skill folder or archive here. A source may hold one skill (SKILL.md at its root) or a bundle of skill folders.")}
-        </span>
-      </div>
-      {result && <p className="small">{result}</p>}
+    <div className={`set-import ${dropping ? "drop-target" : ""}`} title={t("Or drop a skill folder or archive on this window. A source may hold one skill (SKILL.md at its root) or a bundle of skill folders.")}>
+      <button className="set-button" disabled={busy} onClick={() => void stage("folder")} type="button">
+        {t("Import a folder…")}
+      </button>
+      <button className="set-button" disabled={busy} onClick={() => void stage("zip")} type="button">
+        {t("Import a .zip…")}
+      </button>
+      {result && <span className="set-item-note">{result}</span>}
 
       {plan && (
         <div aria-modal="true" className="modal-backdrop" role="dialog">

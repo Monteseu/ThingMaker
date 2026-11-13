@@ -52,6 +52,7 @@ describe("MCP servers in Integrations", () => {
   it("installs a catalog server for every provider that is set up, after a test start", async () => {
     render(<McpSection workspaceId="w1" />);
     await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Add a server" }));
     fireEvent.click(screen.getAllByRole("button", { name: "Install…" })[0] as HTMLElement);
     expect((screen.getByLabelText("Server command") as HTMLInputElement).value).toBe("npx -y @playwright/mcp@latest");
     expect((screen.getByRole("checkbox", { name: /Antigravity/ }) as HTMLInputElement).disabled).toBe(true);
@@ -75,6 +76,7 @@ describe("MCP servers in Integrations", () => {
   it("fills the workspace folder into a catalog entry that needs one", async () => {
     render(<McpSection workspaceId="w1" />);
     await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Add a server" }));
     fireEvent.click(screen.getAllByRole("button", { name: "Install…" })[1] as HTMLElement);
     expect((screen.getByLabelText("Server command") as HTMLInputElement).value).toBe("npx -y fs /work/app");
   });
@@ -82,6 +84,7 @@ describe("MCP servers in Integrations", () => {
   it("reads a pasted config through the host, and warns about a secret not stored yet", async () => {
     render(<McpSection workspaceId="w1" />);
     await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Add a server" }));
     fireEvent.change(screen.getByLabelText("Paste an MCP config or command"), { target: { value: "uvx mcp-server-fetch" } });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Read it" }));
@@ -98,6 +101,6 @@ describe("MCP servers in Integrations", () => {
     await settle();
     expect(screen.getAllByText("context7").length).toBeGreaterThan(0);
     expect(screen.getByText("uses API_KEY")).toBeTruthy();
-    expect(screen.getByText("every project")).toBeTruthy();
+    expect(screen.getByText("Every project")).toBeTruthy();
   });
 });

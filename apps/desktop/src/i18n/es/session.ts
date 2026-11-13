@@ -378,6 +378,7 @@ export const session: Record<string, string> = {
   "detached: {state}": "desacoplada: {state}",
   "content not supplied": "contenido no recibido",
   "copy": "copiar",
+  "Copy": "Copiar",
   "You": "Tú",
   "Agent": "Agente",
   "The agent asked for permission ({title}) and it was {refused}.": "El agente pidió permiso ({title}) y se le {refused}.",
@@ -538,7 +539,7 @@ export const session: Record<string, string> = {
   "Artifact": "Artefacto",
   "Starts a new session from this point, briefed on the conversation so far: {provider} cannot copy part of a conversation. This one stays as it is.": "Empieza una sesión nueva desde este punto, con un resumen de la conversación hasta aquí: {provider} no puede copiar parte de una conversación. Esta se queda como está.",
   "Starts a new session from this point. This one stays as it is.": "Empieza una sesión nueva desde este punto. Esta se queda como está.",
-  "fork from here": "bifurcar desde aquí",
+  "Fork from here": "Bifurcar desde aquí",
   "its parent session": "su sesión madre",
   "Nested in": "Anidada en",
   "At the end of each turn, its answer is passed to “{name}” as context for its next message. It never starts work there.": "Al final de cada turno, su respuesta pasa a «{name}» como contexto para su próximo mensaje. Nunca pone a trabajar a esa sesión.",
@@ -568,4 +569,5 @@ export const session: Record<string, string> = {
   "Context: {used} of {size} ({percent}%)": "Contexto: {used} de {size} ({percent}%)",
   "{percent}% used": "{percent}% usado",
   "Free space": "Espacio libre",
+  "Several providers cross-review a change": "Varios proveedores revisan un cambio entre ellos",
 };

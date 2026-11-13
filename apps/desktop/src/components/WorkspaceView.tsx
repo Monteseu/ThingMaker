@@ -3,7 +3,7 @@
  * it, and the rest (what agents read here, the workspace's details) folded
  * into rows that say what is inside before they are opened.
  */
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { PROVIDERS, PROVIDER_LABELS, parseLocalModel, type Provider, type SessionRecord, type TeamPreset } from "@thingmaker/contracts";
 import { startingProvider, useStore } from "../store";
 import { api } from "../ipc";
@@ -86,8 +86,12 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }) {
     setMenuOpen(false);
   };
 
+  // Laid out like a conversation: the project and its recent sessions above,
+  // the box that starts a session at the bottom.
   return (
-    <div className="panel project-home">
+    <div className="project-home">
+      <div className="project-home-scroll">
+        <div className="project-home-body">
       <header className="home-head">
         <div className="home-head-text">
           <h2>{name}</h2>
@@ -136,101 +140,16 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }) {
 
       {wiping && <WipeDialog name={name} onClose={() => setWiping(false)} workspaceId={workspaceId} />}
 
-      <StartBox name={name} trusted={trusted} workspaceId={workspaceId} />
-
       <OutboxPanel workspaceId={workspaceId} />
 
       <RecentSessions records={records ?? []} trusted={trusted} workspaceId={workspaceId} />
+        </div>
+      </div>
 
-      <div className="home-folds">
-        <AgentSetup workspaceId={workspaceId} />
-        <Fold hint={<span className="mono">{inspection.identity.workspaceHash.slice(0, 18)}</span>} name={t("Details")}>
-          <dl className="facts">
-            <dt>{t("Folder")}</dt>
-            <dd className="mono">{root}</dd>
-            <dt>{t("Kind")}</dt>
-            <dd>
-              {inspection.isGitRepository
-                ? inspection.isUnityProject
-                  ? t("Git repository, Unity project")
-                  : t("Git repository")
-                : inspection.isUnityProject
-                  ? t("Folder (non-Git), Unity project")
-                  : t("Folder (non-Git)")}
-            </dd>
-            <dt>{t("Workspace id")}</dt>
-            <dd className="mono">{inspection.identity.workspaceHash.slice(0, 18)}</dd>
-            <dt>{t("Archived sessions")}</dt>
-            <dd>{(records ?? []).filter((record) => record.archiveState === "archived").length}</dd>
-          </dl>
-        </Fold>
+      <div className="project-home-composer">
+        <StartBox name={name} trusted={trusted} workspaceId={workspaceId} />
       </div>
     </div>
-  );
-}
-
-/** A folded row: its name and a one-line summary, the rest when opened. */
-function Fold({ name, hint, warn, children }: { name: string; hint: ReactNode; warn?: boolean; children: ReactNode }) {
-  return (
-    <details className="home-fold">
-      <summary>
-        <span className="home-fold-chevron"><IconChevron size={11} /></span>
-        <span className="home-fold-name">{name}</span>
-        <span className={`home-fold-hint ${warn ? "home-fold-warn" : ""}`}>{hint}</span>
-      </summary>
-      <div className="home-fold-body">{children}</div>
-    </details>
-  );
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
-}
-
-/** What an agent started here reads and may run, summed up in one line. */
-function AgentSetup({ workspaceId }: { workspaceId: string }) {
-  const inspection = useStore((s) => s.inspections[workspaceId]);
-  if (!inspection) return null;
-  const present = inspection.sources.filter((source) => source.present);
-  const absent = inspection.sources.filter((source) => !source.present);
-  const runs = present.filter((source) => source.executable);
-  const hint = runs.length > 0
-    ? runs.length === 1
-      ? t("{file} runs when an agent starts", { file: runs[0]?.path ?? "" })
-      : t("{count} files run when an agent starts", { count: runs.length })
-    : present.length === 0
-      ? t("No instructions or MCP servers in this project")
-      : present.map((source) => source.path).join(" · ");
-  return (
-    <Fold hint={hint} name={t("Agent setup")} warn={runs.length > 0}>
-      <p className="small">{t("What an agent started here reads and may run. Agents act with your account's permissions.")}</p>
-      {present.length > 0 && (
-        <ul className="home-files">
-          {present.map((source) => (
-            <li key={source.path}>
-              <span className="mono">{source.path}</span>
-              <span className="small muted">{formatBytes(source.bytes)}</span>
-              {source.executable && <span className="chip chip-warn small">{t("runs when an agent starts")}</span>}
-              {source.summary.length > 0 && (
-                <ul className="small muted">
-                  {source.summary.map((line) => (
-                    <li key={line}>{line}</li>
-                  ))}
-                </ul>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-      {absent.length > 0 && (
-        <p className="small">
-          <span className="muted">{t("Not found:")}</span> <span className="mono muted">{absent.map((source) => source.path).join(" · ")}</span>
-        </p>
-      )}
-      <p className="small muted mono">{t("fingerprint {digest}", { digest: inspection.trustDigest.slice(0, 16) })}</p>
-    </Fold>
   );
 }
 

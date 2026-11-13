@@ -29,7 +29,7 @@ const open = () => fireEvent.click(screen.getByRole("button", { expanded: false 
 
 describe("the views menu", () => {
   it("groups exactly the views you open deliberately", () => {
-    expect(GROUPED_VIEWS.map((view) => view.id)).toEqual(["files", "changes", "context", "artifacts", "images"]);
+    expect(GROUPED_VIEWS.map((view) => view.id)).toEqual(["files", "changes", "context", "artifacts", "images", "ultrareview"]);
   });
 
   it("leaves every view reachable: the palette lists them all", () => {
@@ -55,7 +55,7 @@ describe("the views menu", () => {
     open();
 
     const menu = within(screen.getByRole("menu"));
-    expect(menu.getAllByRole("menuitemradio")).toHaveLength(5);
+    expect(menu.getAllByRole("menuitemradio")).toHaveLength(6);
     expect(menu.getByRole("menuitemradio", { name: /Changes/, checked: true })).toBeTruthy();
     expect(menu.getByRole("menuitemradio", { name: /Files/, checked: false })).toBeTruthy();
   });

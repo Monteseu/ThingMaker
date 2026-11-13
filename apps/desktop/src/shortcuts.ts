@@ -34,7 +34,7 @@ export function useKeyboardShortcuts(): void {
       }
       if (key === "i") {
         event.preventDefault();
-        state.setView({ kind: "integrations" });
+        state.setView({ kind: "settings", tab: "integrations" });
         return;
       }
       if (key === "f" && state.view.kind === "session") {

@@ -14,7 +14,6 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { AttentionBanner, CloseRequestDialog, LockedResumeDialog } from "./components/Attention";
 import { useKeyboardShortcuts } from "./shortcuts";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { IntegrationsPanel } from "./components/IntegrationsPanel";
 import { TeamsView } from "./components/TeamsView";
 import { CommandPalette } from "./components/CommandPalette";
 import { IconFolder, IconKey } from "./components/icons";
@@ -174,7 +173,6 @@ export function App() {
               {view.kind === "signin" && <SignInPanel />}
               {view.kind === "settings" && <SettingsPanel />}
               {view.kind === "teams" && <TeamsView />}
-              {view.kind === "integrations" && <IntegrationsPanel />}
             </ErrorBoundary>
           </div>
         </section>

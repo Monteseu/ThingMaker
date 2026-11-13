@@ -66,6 +66,7 @@ import { notify, shouldNotify } from "./notifications";
 import { CLAUDE_RETRY_MS, claudeUsageFrom } from "./odysseyClaudeQuota";
 import { applyEvent, emptyProjection, EMPTY_QUEUE, type Card, type Projection } from "./projection";
 import { IS_REMOTE } from "./remote/mode";
+import { idleSweep, loadTouches, saveTouches, touch } from "./idleSessions";
 import { navEntry, navTarget, recordVisit, type NavEntry } from "./navHistory";
 
 export const CLOSE_REQUESTED_EVENT = "thingmaker://close-requested";
@@ -135,9 +136,11 @@ export type View =
   /** A new session whose agent is still starting (see StartingPanel). */
   | { kind: "starting" }
   | { kind: "signin" }
-  | { kind: "settings" }
-  | { kind: "teams" }
-  | { kind: "integrations" };
+  | { kind: "settings"; tab?: SettingsTab }
+  | { kind: "teams" };
+
+/** Settings' tabs, in bar order. Integrations is one of them (⌘I). */
+export type SettingsTab = "general" | "chat" | "models" | "notifications" | "integrations" | "phone" | "data";
 
 export type SessionTab = "transcript" | "files" | "changes" | "terminal" | "agents" | "context" | "artifacts" | "images" | "odyssey" | "ultrareview";
 
@@ -161,7 +164,7 @@ export type OdysseyRuntime = {
   forecast?: string | null;
 };
 
-export const SESSION_TABS: SessionTab[] = ["transcript", "agents", "odyssey", "terminal", "files", "changes", "context", "artifacts", "images"];
+export const SESSION_TABS: SessionTab[] = ["transcript", "agents", "odyssey", "terminal", "files", "changes", "context", "artifacts", "images", "ultrareview"];
 
 export const DEFAULT_UI_PREFS: UiPrefs = { enterSends: true, reducedMotion: "system", transcriptPage: 50, followUp: "queue" };
 
@@ -343,6 +346,8 @@ type State = {
   /** Deletes for good every Claude and Codex session ThingMaker ran in a project, from this computer. */
   wipeSessions: (workspaceId: string) => Promise<WipeReport | null>;
   resetSessionDefaults: () => Promise<void>;
+  /** Sets the model or effort new sessions on `provider` start with; an empty value goes back to the account's. */
+  setSessionDefault: (provider: Provider, patch: { model?: string; reasoningEffort?: string }) => Promise<void>;
   noteImageFiles: (sessionId: string, files: string[], initial: boolean) => void;
   loadUiPrefs: () => Promise<void>;
   setUiPrefs: (patch: Partial<UiPrefs>) => Promise<void>;
@@ -811,6 +816,42 @@ function reportsSent(get: Get, set: Set, agentSessionId: string | null) {
   set({ nestedReports: { ...get().nestedReports, [agentSessionId]: [] } });
 }
 
+/**
+ * Stops live sessions nobody has opened, and nothing has happened in, for
+ * three days (see idleSessions.ts). The conversation stays in the list. A
+ * session that is working, or on screen, is never stopped.
+ */
+async function stopIdleSessions(get: Get, set: Set): Promise<void> {
+  const state = get();
+  const candidates = Object.entries(state.sessions).map(([id, session]) => {
+    const projection = session.projection;
+    const busy =
+      !!session.inFlightRequestId ||
+      !!session.pendingPrompt ||
+      projection.foreground === "running" ||
+      projection.foreground === "awaiting_user" ||
+      projection.autonomous.size > 0 ||
+      [...projection.detached.values()].some((s) => s === "active" || s === "cancellation_requested") ||
+      [...projection.inspector.agents.values()].some((agent) => agent.status === "working" || agent.status === "starting");
+    return { id, sequence: projection.lastSequence, busy };
+  });
+  const onScreen = state.view.kind === "session" ? state.view.sessionId : null;
+  const { touches, stop } = idleSweep(candidates, loadTouches(), Date.now(), onScreen);
+  saveTouches(touches);
+  for (const id of stop) {
+    const session = get().sessions[id];
+    if (!session) continue;
+    try {
+      await api.sessionStop(session.handle);
+    } catch {
+      continue;
+    }
+    const { [id]: _stopped, ...rest } = get().sessions;
+    set({ sessions: rest, sessionOrder: get().sessionOrder.filter((s) => s !== id) });
+    void get().loadRecords(session.workspaceId);
+  }
+}
+
 async function attachLive(get: Get, set: Set, handle: SessionHandle, workspaceId: string, focus: boolean): Promise<void> {
   const snapshot = await api.sessionSnapshot(handle);
   const projection = projectionFromSnapshot(snapshot);
@@ -1012,6 +1053,10 @@ export const useStore = create<State>((set, get) => ({
       // preferences, which say whether to offer the popup), then every few
       // hours. The phone has no install of its own to update.
       if (!IS_REMOTE) {
+        // Sessions left unopened for three days stop: a minute after start,
+        // then every hour. Only the computer does this, never the phone.
+        setTimeout(() => void stopIdleSessions(get, set), 60_000);
+        setInterval(() => void stopIdleSessions(get, set), 60 * 60 * 1000);
         setTimeout(() => void get().checkForUpdate("startup"), 5_000);
         setInterval(() => void get().checkForUpdate("timer"), UPDATE_CHECK_EVERY_MS);
       }
@@ -1107,6 +1152,8 @@ export const useStore = create<State>((set, get) => ({
     set({ view, ...(IS_REMOTE ? { sidebarCollapsed: true } : {}) });
     if (view.kind === "session") {
       const session = get().sessions[view.sessionId];
+      // Opening a session restarts its idle clock (idleSessions.ts).
+      if (session?.projection && !IS_REMOTE) saveTouches(touch(loadTouches(), view.sessionId, session.projection.lastSequence, Date.now()));
       if (session && session.attention !== "none") {
         set({ sessions: { ...get().sessions, [view.sessionId]: { ...session, attention: "none" } } });
       }
@@ -2146,6 +2193,25 @@ export const useStore = create<State>((set, get) => ({
         contextBundles: strip(get().contextBundles),
         ...(leaving ? { view: { kind: "welcome" } as View } : {}),
       });
+    } catch (error) {
+      set({ error: asError(error) });
+    }
+  },
+
+  async setSessionDefault(provider, patch) {
+    const choice: ProviderChoice = { ...get().sessionDefaults[provider] };
+    if (patch.model !== undefined) {
+      if (patch.model) choice.model = patch.model;
+      else delete choice.model;
+    }
+    if (patch.reasoningEffort !== undefined) {
+      if (patch.reasoningEffort) choice.reasoningEffort = patch.reasoningEffort;
+      else delete choice.reasoningEffort;
+    }
+    const defaults: SessionDefaults = { ...get().sessionDefaults, [provider]: choice };
+    set({ sessionDefaults: defaults });
+    try {
+      await api.prefSet("session_defaults", defaults);
     } catch (error) {
       set({ error: asError(error) });
     }

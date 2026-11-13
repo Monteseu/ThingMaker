@@ -34,7 +34,6 @@ import { copiesItself, forkPointAt, splitNestedReports } from "../fork";
 import { isLocalChat } from "../localModels";
 import { ContextRing } from "./ContextRing";
 import { LocalBadge } from "./LocalBadge";
-import { hasConversation } from "../team";
 import { NestedBanner, NestedReportsCard, NestedReportsStrip } from "./NestedSessions";
 import type { Card } from "../projection";
 import { assignImages, keyOf, type ImageRef } from "../transcriptImages";
@@ -43,7 +42,7 @@ import { CodeChangesCard, EditedFilesList, TestsCard } from "./ChangeCards";
 import { PlanBar, PlanCard, planText } from "./PlanChecklist";
 import { QueueStrip } from "./QueueStrip";
 import { ProviderMark } from "./ProviderMark";
-import { IconAgents, IconArrowUp, IconAt, IconBox, IconBranch, IconCheck, IconChevron, IconDots, IconFolder, IconImage, IconPaperclip, IconSquare } from "./icons";
+import { IconAgents, IconArrowUp, IconAt, IconBox, IconBranch, IconCheck, IconChevron, IconCopy, IconDots, IconEyeCheck, IconFolder, IconImage, IconPaperclip, IconSquare } from "./icons";
 import { withoutHandoff } from "../team";
 
 import { suggestionMessages, suggestionKey, useReplySuggestion } from "../replySuggestion";
@@ -254,6 +253,36 @@ const CardView = memo(
 );
 
 /**
+ * A message's copy and fork, as icons on a row under it that show while the
+ * pointer is over the message (they never cover its text).
+ */
+function MessageActions({ card, sessionId }: { card: Extract<Card, { kind: "message" }>; sessionId: string }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), 1500);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+  return (
+    <div className="message-actions">
+      <button
+        aria-label={copied ? t("Copied") : t("Copy")}
+        className="message-action"
+        onClick={() => {
+          copyText(messageText(card));
+          setCopied(true);
+        }}
+        title={copied ? t("Copied") : t("Copy")}
+        type="button"
+      >
+        {copied ? <IconCheck size={15} /> : <IconCopy size={15} />}
+      </button>
+      <ForkFromHere cardKey={card.key} sessionId={sessionId} />
+    </div>
+  );
+}
+
+/**
  * "Fork from here": a new session from this point, nested under this one,
  * which stays as it is. At a reply the copy keeps it; at your own message the
  * copy ends just before it, and the message waits in the fork's composer.
@@ -277,7 +306,8 @@ function ForkFromHere({ sessionId, cardKey }: { sessionId: string; cardKey: stri
   const summary = point && !point.fresh && !copiesItself(provider, point, cards);
   return (
     <button
-      className="link small"
+      aria-label={t("Fork from here")}
+      className="message-action"
       onClick={fork}
       title={
         summary
@@ -286,7 +316,7 @@ function ForkFromHere({ sessionId, cardKey }: { sessionId: string; cardKey: stri
       }
       type="button"
     >
-      {t("fork from here")}
+      <IconBranch size={15} />
     </button>
   );
 }
@@ -320,12 +350,7 @@ function CardBody({ card, sessionId }: { card: Card; sessionId: string }) {
               {card.message.contentUnknown && <span className="chip chip-warn small">{t("content not supplied")}</span>}
               <Blocks blocks={card.message.blocks} markdown onLink={onLink} workspaceId={workspaceId} />
             </div>
-            <span className="card-actions card-actions-float">
-              <button className="link small" onClick={() => copyText(messageText(card))} type="button">
-                {t("copy")}
-              </button>
-              <ForkFromHere cardKey={card.key} sessionId={sessionId} />
-            </span>
+            <MessageActions card={card} sessionId={sessionId} />
           </article>
         );
       }
@@ -343,18 +368,15 @@ function CardBody({ card, sessionId }: { card: Card; sessionId: string }) {
       }
       if (card.message.role === "user") {
         // The right-hand bubble is always the person: no name over it. Its
-        // actions show beside it on hover.
+        // actions sit under it, shown on hover.
         return (
-          <article className="card card-user" title={card.message.messageId}>
-            {card.message.contentUnknown && <span className="chip chip-warn small">{t("content not supplied")}</span>}
-            <Blocks blocks={shownBlocks(card)} markdown={false} onLink={onLink} workspaceId={workspaceId} />
-            <span className="card-actions card-actions-side">
-              <button className="link small" onClick={() => copyText(messageText(card))} type="button">
-                {t("copy")}
-              </button>
-              <ForkFromHere cardKey={card.key} sessionId={sessionId} />
-            </span>
-          </article>
+          <div className="message-user">
+            <article className="card card-user" title={card.message.messageId}>
+              {card.message.contentUnknown && <span className="chip chip-warn small">{t("content not supplied")}</span>}
+              <Blocks blocks={shownBlocks(card)} markdown={false} onLink={onLink} workspaceId={workspaceId} />
+            </article>
+            <MessageActions card={card} sessionId={sessionId} />
+          </div>
         );
       }
       return (
@@ -561,6 +583,16 @@ export const GROUPED_VIEWS: { id: SessionTab; label: string; icon: (props: { siz
       return t("Generated images");
     },
   },
+  {
+    id: "ultrareview",
+    get label() {
+      return t("Ultra-Review");
+    },
+    icon: IconEyeCheck,
+    get hint() {
+      return t("Several providers cross-review a change");
+    },
+  },
 ];
 
 /**
@@ -571,14 +603,15 @@ export const GROUPED_VIEWS: { id: SessionTab; label: string; icon: (props: { siz
  * they share a trigger that names whichever one is open, and carries the
  * badge of a grouped view that has something live in it while it is closed.
  */
-export function ViewsMenu({ tab, onPick, badges }: { tab: SessionTab; onPick: (tab: SessionTab) => void; badges?: Partial<Record<SessionTab, string>> }) {
+export function ViewsMenu({ tab, onPick, badges, hide }: { tab: SessionTab; onPick: (tab: SessionTab) => void; badges?: Partial<Record<SessionTab, string>>; hide?: SessionTab[] }) {
   const [at, setAt] = useState<{ x: number; y: number } | null>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
-  const current = GROUPED_VIEWS.find((view) => view.id === tab);
+  const views = GROUPED_VIEWS.filter((view) => !hide?.includes(view.id));
+  const current = views.find((view) => view.id === tab);
   // A count worth glancing at is useless inside a closed menu, so the trigger
   // carries it while that view is not the one on screen.
-  const hidden = GROUPED_VIEWS.filter((view) => view.id !== tab && badges?.[view.id])
+  const hidden = views.filter((view) => view.id !== tab && badges?.[view.id])
     .map((view) => badges?.[view.id])
     .filter(Boolean);
 
@@ -626,7 +659,7 @@ export function ViewsMenu({ tab, onPick, badges }: { tab: SessionTab; onPick: (t
       </button>
       {at && (
         <div className="context-menu" ref={menu} role="menu" style={{ left: Math.max(8, at.x), top: at.y }}>
-          {GROUPED_VIEWS.map((view) => (
+          {views.map((view) => (
             <button
               className="context-item context-item-row"
               key={view.id}
@@ -648,34 +681,6 @@ export function ViewsMenu({ tab, onPick, badges }: { tab: SessionTab; onPick: (t
         </div>
       )}
     </>
-  );
-}
-
-/**
- * A side chat: talk to a copy of this session without adding to its
- * conversation. The copy is a nested session of its own (a fork that can
- * also change this session's Big Thing, which is then told), and opens.
- */
-function SideChatButton({ sessionId }: { sessionId: string }) {
-  const forkSession = useStore((s) => s.forkSession);
-  const ready = useStore((s) => Boolean(s.sessions[sessionId]?.snapshot.agentSessionId) && hasConversation(s.sessions[sessionId]?.projection.cards));
-  const busy = useStore((s) => s.busy !== null);
-  const start = () => {
-    const session = useStore.getState().sessions[sessionId];
-    const agentSessionId = session?.snapshot.agentSessionId;
-    if (!session || !agentSessionId) return;
-    void forkSession({ workspaceId: session.workspaceId, agentSessionId, provider: session.snapshot.provider, key: sessionId }, undefined, { side: true });
-  };
-  return (
-    <button
-      className="tab tab-side"
-      disabled={!ready || busy}
-      onClick={start}
-      title={ready ? t("A copy of this conversation in a new session, nested under this one. This one stays as it is, and the copy reports back.") : t("Send this session a message first: there is nothing to copy yet.")}
-      type="button"
-    >
-      <IconBranch size={13} /> {t("Fork")}
-    </button>
   );
 }
 
@@ -914,7 +919,7 @@ export function SessionPanel({ sessionId }: { sessionId: string }) {
     return () => unlisten?.();
   }, [sessionId, addAttachments, setError]);
 
-  // Grow the composer with its content: one line when empty, up to four,
+  // Grow the composer with its content: one line when empty, up to seven,
   // then it scrolls. The bounds live in CSS (min-height/max-height); this
   // only measures the text, so the two cannot drift apart.
   useEffect(() => {
@@ -1095,8 +1100,6 @@ export function SessionPanel({ sessionId }: { sessionId: string }) {
       ? []
       : [
           { id: "odyssey" as const, label: odysseyLabel, ...(docWaiting ? { waiting: t("A document is waiting for you in Big Thing") } : {}) },
-          // Not on the phone: a review is set up and read at the computer.
-          ...(IS_REMOTE ? [] : [{ id: "ultrareview" as const, label: ultraReviewLabel }]),
         ]),
   ];
 
@@ -1165,12 +1168,19 @@ export function SessionPanel({ sessionId }: { sessionId: string }) {
           ))}
         </div>
         <span className="tabs-spacer" />
-        {!isWorker && <SideChatButton sessionId={sessionId} />}
         {/* The terminal is still a view (the command palette opens it); its
             place in the bar went to the commands left running in the
             background, which nothing else shows once a turn has ended. */}
         <BackgroundTasksButton sessionId={sessionId} />
-        {!IS_REMOTE && <ViewsMenu onPick={setTab} tab={tab} />}
+        {/* Ultra-Review lives in the menu; a running one shows its phase on the trigger. */}
+        {!IS_REMOTE && (
+          <ViewsMenu
+            badges={ultraReviewLabel.includes(" · ") ? { ultrareview: ultraReviewLabel.split(" · ").slice(1).join(" · ") } : {}}
+            hide={isWorker || localChat ? ["ultrareview"] : []}
+            onPick={setTab}
+            tab={tab}
+          />
+        )}
       </div>
       </>
       {active && <div aria-hidden="true" className="progress-line" />}

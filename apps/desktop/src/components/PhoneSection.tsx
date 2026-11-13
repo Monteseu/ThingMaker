@@ -16,6 +16,7 @@ import { api } from "../ipc";
 import { PhoneSetupGuide } from "./PhoneSetupGuide";
 import { useStore } from "../store";
 import { t } from "../i18n";
+import { Fold, FoldItem, SettingGroup, SettingRow, Switch } from "./settings/controls";
 
 /** What the phone last said about an app it was sent. */
 const OFFER_STATE = (): Record<string, string> => ({
@@ -54,14 +55,13 @@ const MODE_LABEL = (): Record<ConnectionMode, string> => ({
  * computer's port; either with an optional Cloudflare Access service token
  * (the relay needs one).
  */
-function ConnectionForm({ status, onSaved }: { status: RemoteStatus; onSaved: () => void }) {
+function ConnectionForm({ status, onSaved, onCancel }: { status: RemoteStatus; onSaved: () => void; onCancel?: () => void }) {
   const setError = useStore((s) => s.setError);
   const [mode, setMode] = useState<ConnectionMode>(status.mode);
   const saved = (which: ConnectionMode) => (which === "relay" ? status.relay.url : status.directUrl) ?? "";
   const [url, setUrl] = useState(saved(status.mode));
   const [id, setId] = useState("");
   const [secret, setSecret] = useState("");
-  const [editing, setEditing] = useState(!saved(status.mode));
   /** Which mode's setup guide is open. */
   const [guide, setGuide] = useState<ConnectionMode | null>(null);
   const guideDialog = guide && <PhoneSetupGuide mode={guide} onClose={() => setGuide(null)} port={status.port} />;
@@ -71,47 +71,12 @@ function ConnectionForm({ status, onSaved }: { status: RemoteStatus; onSaved: ()
       .then(() => {
         setId("");
         setSecret("");
-        setEditing(false);
         onSaved();
       })
       .catch((error: unknown) => setError(error));
   const relay = status.relay;
   const port = status.listening[0] ?? `127.0.0.1:${status.port}`;
   const current = saved(status.mode);
-  if (current && !editing) {
-    return (
-      <div className="phone-relay">
-        {guideDialog}
-        <p className="small">
-          {MODE_LABEL()[status.mode]}: <span className="mono">{current}</span>
-          {status.mode === "relay" ? (
-            <>
-              {" · "}
-              <span className={relay.state === "connected" ? "" : relay.state === "error" ? "chip-warn" : "muted"}>{RELAY_STATE()[relay.state] ?? relay.state}</span>
-            </>
-          ) : (
-            <span className="muted"> · {t("forwarded to {port}", { port })}</span>
-          )}
-          {relay.access ? ` · ${t("Cloudflare Access on")}` : status.mode === "relay" ? ` · ${t("no Access token set")}` : ""}{" "}
-          <button
-            className="link small"
-            onClick={() => {
-              setMode(status.mode);
-              setUrl(current);
-              setEditing(true);
-            }}
-            type="button"
-          >
-            {t("change")}
-          </button>{" "}
-          <button className="link small" onClick={() => setGuide(status.mode)} type="button">
-            {t("setup guide")}
-          </button>
-          {status.mode === "relay" && relay.message && <span className="small muted"> — {relay.message}</span>}
-        </p>
-      </div>
-    );
-  }
   return (
     <div className="phone-relay">
       {guideDialog}
@@ -176,8 +141,8 @@ function ConnectionForm({ status, onSaved }: { status: RemoteStatus; onSaved: ()
           <button className="button button-small button-primary" disabled={!url.trim()} type="submit">
             {t("Save")}
           </button>
-          {current && (
-            <button className="button button-small" onClick={() => setEditing(false)} type="button">
+          {current && onCancel && (
+            <button className="button button-small" onClick={onCancel} type="button">
               {t("Cancel")}
             </button>
           )}
@@ -196,6 +161,8 @@ export function PhoneSection() {
   const setError = useStore((s) => s.setError);
   const [status, setStatus] = useState<RemoteStatus | null>(null);
   const [now, setNow] = useState(Date.now());
+  const [editing, setEditing] = useState(false);
+  const [guide, setGuide] = useState<ConnectionMode | null>(null);
 
   const refresh = useCallback(() => {
     api
@@ -240,87 +207,161 @@ export function PhoneSection() {
       .catch((error: unknown) => setError(error));
   };
 
-  if (!status) return null;
+  if (!status) return <p className="muted small">{t("Loading…")}</p>;
   // Ready for a phone: the relay connected, or the tunnel's address set and
   // the port listening.
   const reachable = status.mode === "relay" ? status.relay.state === "connected" : !!status.directUrl && status.listening.length > 0;
   const left = pairing ? Math.max(0, Math.round((pairing.expiresAt - now) / 1000)) : 0;
+  const address = (status.mode === "relay" ? status.relay.url : status.directUrl) ?? "";
+  const relay = status.relay;
+  const port = status.listening[0] ?? `127.0.0.1:${status.port}`;
+  const stateLine =
+    status.mode === "relay"
+      ? relay.state === "connected"
+        ? t("Connected through your Cloudflare relay")
+        : t("Cloudflare relay: {state}", { state: RELAY_STATE()[relay.state] ?? relay.state })
+      : reachable
+        ? t("Reachable through your own tunnel")
+        : t("Your tunnel's address is not set");
+  const guideDialog = guide && <PhoneSetupGuide mode={guide} onClose={() => setGuide(null)} port={status.port} />;
 
   return (
-    <section className="phone-section">
-      <h3>{t("Phone")}</h3>
-      <p className="small muted">
-        {t(
-          "Follow and control this computer\u2019s sessions and Big Things from the ThingMaker app on your Android phone, from anywhere. Choose how the phone reaches this computer: through your own relay on Cloudflare (this computer only connects out) or directly through your own tunnel. Each phone gets its own key, which you can revoke here. Sign-ins, provider settings, the terminal, git and file writes stay on this computer.",
+    <>
+      {guideDialog}
+      <SettingGroup>
+        <SettingRow
+          hint={t("Follow and drive sessions from the Android app")}
+          info={t(
+            "Each phone gets its own key, which you can revoke here. Sign-ins, provider settings, the terminal, git and file writes stay on this computer.",
+          )}
+          name={t("Phone access")}
+        >
+          <Switch checked={status.enabled} label={t("Phone access")} onChange={(on) => run(() => api.remoteSetEnabled(on))} />
+        </SettingRow>
+        {status.enabled && address && !editing && (
+          <SettingRow
+            hint={status.mode === "relay" && relay.message ? relay.message : undefined}
+            name={
+              <>
+                <span className={`set-dot ${reachable ? "set-dot-ok" : "set-dot-warn"}`} />
+                {stateLine}
+              </>
+            }
+            sub
+          >
+            <button className="set-link" onClick={() => setEditing(true)} type="button">
+              {t("Change")}
+            </button>
+          </SettingRow>
         )}
-      </p>
-      <label className="check">
-        <input checked={status.enabled} onChange={(event) => run(() => api.remoteSetEnabled(event.target.checked))} type="checkbox" /> {t("Allow phone access")}
-      </label>
+      </SettingGroup>
+
+      {status.enabled && (!address || editing) && (
+        <section className="set-group">
+          <ConnectionForm
+            onCancel={() => setEditing(false)}
+            onSaved={() => {
+              setEditing(false);
+              refresh();
+            }}
+            status={status}
+          />
+        </section>
+      )}
 
       {status.enabled && (
         <>
-          <ConnectionForm onSaved={refresh} status={status} />
-
-          {pairing ? (
-            <div className="phone-pairing">
-              <div className="phone-qr" dangerouslySetInnerHTML={{ __html: pairing.qrSvg }} />
-              <div>
-                <p className="small">
-                  {t("In the ThingMaker app on your phone, tap")} <strong>{t("Pair with a computer")}</strong> {t("and scan this code. Or type the code:")}
-                </p>
-                <p className="mono phone-code">{pairing.code.replace(/(.{5})/, "$1 ")}</p>
-                <p className="small muted">
-                  {t("Good for {time}, once.", { time: `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}` })}
-                </p>
-                <button className="button button-small" onClick={() => run(api.remotePairCancel)} type="button">
-                  {t("Cancel")}
+          <SettingGroup
+            action={
+              !pairing && (
+                <button className="set-button" disabled={!reachable} onClick={() => run(api.remotePairStart)} title={reachable ? undefined : status.mode === "relay" ? t("Connect this computer to its relay first") : t("Set the tunnel\u2019s address first")} type="button">
+                  {t("Pair a phone")}
                 </button>
-              </div>
-            </div>
-          ) : (
-            <button className="button" disabled={!reachable} onClick={() => run(api.remotePairStart)} title={reachable ? undefined : status.mode === "relay" ? t("Connect this computer to its relay first") : t("Set the tunnel\u2019s address first")} type="button">
-              {t("Pair a phone")}
-            </button>
-          )}
-
-          {status.devices.length > 0 && (
-            <ul className="phone-devices">
-              {status.devices.map((device) => (
-                <li key={device.id}>
-                  <span className={`phone-dot ${device.connected ? "phone-dot-on" : ""}`} title={device.connected ? t("Connected now") : t("Not connected")} />
-                  <strong>{device.name}</strong>
-                  <span className="small muted">
-                    {device.connected ? t("connected") : t("last seen {when}", { when: when(device.lastSeen) })} · {t("paired {date}", { date: new Date(device.pairedAt).toLocaleDateString() })}
-                  </span>
-                  {device.connected && (
-                    <button className="link small" onClick={() => void sendApk(device.id)} title={t("Install an Android app on this phone: it asks you to confirm there")} type="button">
-                      {t("Send an app…")}
-                    </button>
-                  )}
-                  <button className="link small" onClick={() => run(() => api.remoteDeviceRevoke(device.id))} type="button">
-                    {t("Revoke")}
+              )
+            }
+            title={t("Phones")}
+          >
+            {pairing && (
+              <div className="phone-pairing set-pairing">
+                <div className="phone-qr" dangerouslySetInnerHTML={{ __html: pairing.qrSvg }} />
+                <div>
+                  <p className="small">
+                    {t("In the ThingMaker app on your phone, tap")} <strong>{t("Pair with a computer")}</strong> {t("and scan this code. Or type the code:")}
+                  </p>
+                  <p className="mono phone-code">{pairing.code.replace(/(.{5})/, "$1 ")}</p>
+                  <p className="small muted">{t("Good for {time}, once.", { time: `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}` })}</p>
+                  <button className="set-button" onClick={() => run(api.remotePairCancel)} type="button">
+                    {t("Cancel")}
                   </button>
-                </li>
-              ))}
-            </ul>
-          )}
+                </div>
+              </div>
+            )}
+            {status.devices.length === 0 && !pairing && <SettingRow hint={t("Pair one to follow your sessions from it")} name={t("No phones yet")} />}
+            {status.devices.map((device) => (
+              <SettingRow
+                hint={`${device.connected ? t("Connected now") : t("Last seen {when}", { when: when(device.lastSeen) })} · ${t("paired {date}", { date: new Date(device.pairedAt).toLocaleDateString() })}`}
+                key={device.id}
+                name={
+                  <>
+                    <span className={`set-dot ${device.connected ? "set-dot-ok" : ""}`} />
+                    {device.name}
+                  </>
+                }
+              >
+                {device.connected && (
+                  <button className="set-link" onClick={() => void sendApk(device.id)} title={t("Install an Android app on this phone: it asks you to confirm there")} type="button">
+                    {t("Send an app…")}
+                  </button>
+                )}
+                <button className="set-link set-link-danger" onClick={() => run(() => api.remoteDeviceRevoke(device.id))} type="button">
+                  {t("Revoke")}
+                </button>
+              </SettingRow>
+            ))}
+            {status.offers.map((offer) => (
+              <SettingRow hint={`${OFFER_STATE()[offer.state] ?? offer.state}${offer.message ? ` — ${offer.message}` : ""}`} key={offer.id} name={<span className="mono">{offer.name}</span>} sub />
+            ))}
+          </SettingGroup>
 
-          {status.offers.length > 0 && (
-            <ul className="phone-offers">
-              {status.offers.map((offer) => (
-                <li key={offer.id}>
-                  <span className="mono">{offer.name}</span>
-                  <span className={`small ${offer.state === "failed" ? "chip-warn" : "muted"}`}>
-                    {OFFER_STATE()[offer.state] ?? offer.state}
-                    {offer.message ? ` — ${offer.message}` : ""}
-                  </span>
-                </li>
-              ))}
-            </ul>
+          {address && (
+            <SettingGroup>
+              <Fold name={t("How it connects")}>
+                <FoldItem>
+                  <span className="set-item-text">{MODE_LABEL()[status.mode]}</span>
+                  <span className="set-item-note mono">{address}</span>
+                </FoldItem>
+                {status.mode === "direct" && (
+                  <FoldItem>
+                    <span className="set-item-text">{t("Forwarded to")}</span>
+                    <span className="set-item-note mono">{port}</span>
+                  </FoldItem>
+                )}
+                <FoldItem
+                  actions={
+                    relay.access && (
+                      <button className="set-link" onClick={() => run(api.remoteClearAccess)} type="button">
+                        {t("Forget the token")}
+                      </button>
+                    )
+                  }
+                >
+                  <span className="set-item-text">{t("Cloudflare Access")}</span>
+                  <span className="set-item-note">{relay.access ? t("On") : status.mode === "relay" ? t("No token set") : t("Off")}</span>
+                </FoldItem>
+                <FoldItem
+                  actions={
+                    <button className="set-link" onClick={() => setGuide(status.mode)} type="button">
+                      {t("Setup guide")}
+                    </button>
+                  }
+                >
+                  <span className="set-item-note">{status.mode === "relay" ? t("This computer only connects out to the relay.") : t("Your tunnel forwards to this computer's port.")}</span>
+                </FoldItem>
+              </Fold>
+            </SettingGroup>
           )}
         </>
       )}
-    </section>
+    </>
   );
 }

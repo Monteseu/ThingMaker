@@ -431,4 +431,6 @@ export const shell: Record<string, string> = {
   "Sessions deleted": "Sesiones borradas",
   "{claude} Claude Code and {codex} Codex sessions from {name} are gone from this computer ({files} files and folders).": "{claude} sesiones de Claude Code y {codex} de Codex de {name} ya no están en este ordenador ({files} archivos y carpetas).",
   "Some things could not be removed:": "Algunas cosas no se pudieron borrar:",
+  "Projects": "Proyectos",
+  "Add a project (⌘O)": "Añadir un proyecto (⌘O)",
 };

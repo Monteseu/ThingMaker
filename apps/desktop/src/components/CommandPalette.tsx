@@ -19,6 +19,7 @@ function tabName(tab: SessionTab): string {
     case "context": return t("Context");
     case "artifacts": return t("Artifacts");
     case "images": return t("Images");
+    case "ultrareview": return t("Ultra-Review");
     default: return tab;
   }
 }
@@ -51,7 +52,7 @@ export function CommandPalette() {
       { id: "view.signin", label: t("Provider sign-in"), hint: "⌘,", run: () => { state.setView({ kind: "signin" }); void state.loadProviders(); } },
       { id: "view.settings", label: t("Settings"), hint: "⌘;", run: () => { state.setView({ kind: "settings" }); void state.loadSettings(); } },
       { id: "view.teams", label: t("Teams (an orchestrator and its workers)"), run: () => state.setView({ kind: "teams" }) },
-      { id: "view.integrations", label: t("Integration configuration (MCP, plugins, skills, harnesses)"), hint: "⌘I", run: () => state.setView({ kind: "integrations" }) },
+      { id: "view.integrations", label: t("Integrations: instructions, skills, MCP servers and secrets"), hint: "⌘I", run: () => state.setView({ kind: "settings", tab: "integrations" }) },
       { id: "view.welcome", label: t("Welcome"), run: () => state.setView({ kind: "welcome" }) },
     ];
     for (const workspace of state.workspaces) {
