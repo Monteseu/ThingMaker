@@ -18,6 +18,13 @@ it("sends only the last reply, last user message and reply before it, in chronol
   expect(suggestionMessages([message("agent", "x".repeat(65537)), message("user", "prompt"), message("agent", "answer")])).toBeNull();
 });
 
+it("waits for the agent's final message: nothing it did may follow it", () => {
+  const base: Card[] = [message("agent", context[0]), message("user", context[1]), message("agent", context[2])];
+  expect(suggestionMessages([...base, { kind: "tool", key: "after", toolCallId: "still working" } as Card])).toBeNull();
+  expect(suggestionMessages([...base, message("thought", "thinking again")])).toBeNull();
+  expect(suggestionMessages(base)).toEqual(context);
+});
+
 it("accepts with Tab without sending, and dismisses with Escape", () => {
   const send = vi.fn();
   function Composer() {
