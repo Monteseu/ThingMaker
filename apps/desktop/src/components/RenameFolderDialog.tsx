@@ -37,7 +37,8 @@ export function RenameFolderDialog({ workspaceId, onClose }: { workspaceId: stri
   const root = workspace?.canonicalRoot ?? "";
   const current = (workspace?.displayPath ?? root).split(/[\\/]/).filter(Boolean).pop() ?? "";
   const [name, setName] = useState(current);
-  const [withAgent, setWithAgent] = useState(true);
+  // Off unless asked: the agent edits the project's own files.
+  const [withAgent, setWithAgent] = useState(false);
   const [working, setWorking] = useState(false);
   const [report, setReport] = useState<RenameReport | null>(null);
   const input = useRef<HTMLInputElement>(null);

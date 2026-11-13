@@ -1645,7 +1645,6 @@ export type NotificationSettings = {
   keepAwakeOnBattery: boolean;
 };
 
-/** What Wipe All removed from this computer. */
 /** What renaming a project's folder updated besides the folder itself. */
 export type RenameReport = {
   workspace: WorkspaceRecord;
@@ -1658,6 +1657,7 @@ export type RenameReport = {
   problems: string[];
 };
 
+/** What Wipe All removed from this computer. */
 export type WipeReport = {
   claudeSessions: number;
   codexSessions: number;
