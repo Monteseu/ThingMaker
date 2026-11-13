@@ -63,10 +63,29 @@ describe("local model ids and sessions", () => {
 describe("the Local Models card", () => {
   const info = { provider: "local" as const, label: "Local Models", resolved: { provider: "local", program: "/usr/local/bin/ollama", prefixArgs: [], source: "discovered" }, auth: { provider: "local", loggedIn: false } } as never;
 
+  it("starts collapsed and keeps model controls and drafts when reopened", async () => {
+    vi.mocked(api.localStatus).mockResolvedValue(status());
+    const { container } = render(<LocalModelsCard info={info} />);
+    const foldout = container.querySelector("details")!;
+    const summary = container.querySelector("summary")!;
+    await screen.findByText("Running");
+    expect(foldout.open).toBe(false);
+    expect(summary.textContent).toContain("Local Models");
+    fireEvent.click(summary);
+    expect(foldout.open).toBe(true);
+    const input = screen.getByRole("textbox", { name: "Another model by name" });
+    fireEvent.change(input, { target: { value: "mistral:7b" } });
+    fireEvent.click(summary);
+    expect(foldout.open).toBe(false);
+    fireEvent.click(summary);
+    expect((screen.getByRole("textbox", { name: "Another model by name" }) as HTMLInputElement).value).toBe("mistral:7b");
+  });
+
   it("starts Ollama when it is stopped, then lists what is installed and what each can be", async () => {
     vi.mocked(api.localStatus).mockResolvedValueOnce(status({ running: false, models: [], recommended: [] })).mockResolvedValue(status());
     vi.mocked(api.localStart).mockResolvedValue("0.40.16");
-    render(<LocalModelsCard info={info} />);
+    const { container } = render(<LocalModelsCard info={info} />);
+    fireEvent.click(container.querySelector("summary")!);
     fireEvent.click(await screen.findByRole("button", { name: "Start Ollama" }));
     await waitFor(() => expect(api.localStart).toHaveBeenCalled());
     expect(await screen.findByText("qwen3:8b")).toBeTruthy();
@@ -77,7 +96,8 @@ describe("the Local Models card", () => {
 
   it("offers each model's windows up to its maximum, and saves the one chosen", async () => {
     vi.mocked(api.localStatus).mockResolvedValue(status());
-    render(<LocalModelsCard info={info} />);
+    const { container } = render(<LocalModelsCard info={info} />);
+    fireEvent.click(container.querySelector("summary")!);
     const llama = (await screen.findByRole("combobox", { name: "Context window for llama3.1:8b" })) as HTMLSelectElement;
     expect([...llama.options].map((option) => option.textContent)).toEqual(["16k · Fits", "32k · Fits", "64k · Too big", "128k · max · Too big"]);
     expect(llama.value).toBe("32768");
@@ -91,7 +111,8 @@ describe("the Local Models card", () => {
     vi.mocked(api.localPull).mockImplementation(async (_name: string, onEvent: (event: never) => void) => {
       send = onEvent as never;
     });
-    render(<LocalModelsCard info={info} />);
+    const { container } = render(<LocalModelsCard info={info} />);
+    fireEvent.click(container.querySelector("summary")!);
     const coder = (await screen.findByText("qwen2.5-coder:7b")).closest(".local-get") as HTMLElement;
     expect((within(screen.getByText("gpt-oss:20b").closest(".local-get") as HTMLElement).getByRole("button", { name: "Download" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(within(coder).getByRole("button", { name: "Download" }));
@@ -105,7 +126,8 @@ describe("the Local Models card", () => {
   it("asks Windows, once, to let local agents reach Ollama", async () => {
     vi.mocked(api.localStatus).mockResolvedValueOnce(status({ privateMode: "app_container", loopbackAllowed: false })).mockResolvedValue(status({ privateMode: "app_container", loopbackAllowed: true }));
     vi.mocked(api.localAllowLoopback).mockResolvedValue(true);
-    render(<LocalModelsCard info={info} />);
+    const { container } = render(<LocalModelsCard info={info} />);
+    fireEvent.click(container.querySelector("summary")!);
     fireEvent.click(await screen.findByRole("button", { name: "Allow" }));
     await waitFor(() => expect(api.localAllowLoopback).toHaveBeenCalled());
     await waitFor(() => expect(screen.queryByRole("button", { name: "Allow" })).toBeNull());
@@ -115,7 +137,8 @@ describe("the Local Models card", () => {
     const openUrl = vi.fn(async () => undefined);
     useStore.setState({ openUrl } as never);
     vi.mocked(api.localStatus).mockResolvedValue(status({ installed: false, running: false, models: [], recommended: [] }));
-    render(<LocalModelsCard info={{ provider: "local", label: "Local Models", problem: "Ollama is not installed." } as never} />);
+    const { container } = render(<LocalModelsCard info={{ provider: "local", label: "Local Models", problem: "Ollama is not installed." } as never} />);
+    fireEvent.click(container.querySelector("summary")!);
     fireEvent.click(await screen.findByRole("button", { name: "Get Ollama" }));
     expect(openUrl).toHaveBeenCalledWith("https://ollama.com/download");
   });
