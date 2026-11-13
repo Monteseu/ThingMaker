@@ -9,7 +9,7 @@
  * API billing); tokens never pass through the desktop, and URLs open only
  * when you click them.
  */
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { ACCOUNT_PROVIDERS, PROVIDER_LABELS, type Provider, type ProviderInfo, type ProviderModel } from "@thingmaker/contracts";
 import { ProviderLogo } from "./ProviderLogo";
 import { api } from "../ipc";
@@ -17,7 +17,8 @@ import { useStore, type SignInRun } from "../store";
 import { t } from "../i18n";
 import { LocalModelsCard } from "./LocalModelsCard";
 import { ProviderAccounts } from "./ProviderAccounts";
-import { UsageMeter } from "./UsageMeter";
+import { UsageMeter, resetTime, untilText } from "./UsageMeter";
+import { windowName } from "./UsageLine";
 import { IconDots, IconRefresh } from "./icons";
 
 /** What a provider signs in with, for someone who has not yet. */
@@ -73,6 +74,37 @@ function Meters({ provider }: { provider: Provider }) {
         <UsageMeter key={index} usage={window} />
       ))}
       {usage.limitReached && <span className="chip-warn-text">{t("limit reached")}</span>}
+    </>
+  );
+}
+
+/**
+ * The windows that are used up, and when each refills: shown in a provider's
+ * details so a spent account says when it can work again.
+ */
+function SpentWindows({ provider }: { provider: Provider }) {
+  const usage = useStore((s) => s.usage[provider]);
+  if (!usage) return null;
+  const windows = (usage.windows ?? [usage.primary, usage.secondary]).filter((window): window is NonNullable<typeof window> => !!window);
+  const now = Date.now();
+  const spent = windows
+    .filter((window) => Math.round(window.usedPercent) >= 100)
+    .map((window) => ({ window, at: resetTime(window, usage.fetchedAtUnixMs) }))
+    .filter((entry): entry is { window: (typeof windows)[number]; at: number } => entry.at !== null && entry.at > now);
+  return (
+    <>
+      {spent.map(({ window, at }, index) => (
+        <Fragment key={index}>
+          <dt>{index === 0 ? t("Usage back in") : ""}</dt>
+          <dd>
+            {t("{when} · {window} window, at {time}", {
+              when: untilText(at - now),
+              window: window.label ?? windowName(window.windowSeconds),
+              time: new Date(at).toLocaleString(undefined, { weekday: at - now > 86_400_000 ? "short" : undefined, hour: "2-digit", minute: "2-digit" }),
+            })}
+          </dd>
+        </Fragment>
+      ))}
     </>
   );
 }
@@ -289,6 +321,7 @@ function ProviderRow({ info }: { info: ProviderInfo }) {
                   <dd>{auth.problem}</dd>
                 </>
               )}
+              <SpentWindows provider={provider} />
               {versionText && (
                 <>
                   <dt>{t("Version")}</dt>

@@ -47,3 +47,26 @@ export function pairWindows(windows: UsageWindow[]): WindowPair[] {
   }
   return pairs;
 }
+
+/**
+ * When a usage window refills, in Unix ms: the provider's own reset time, or
+ * its "resets after" counted from when the reading was taken. Null when the
+ * provider gave neither.
+ */
+export function resetTime(window: UsageWindow, fetchedAtUnixMs: number): number | null {
+  if (window.resetAtUnix !== undefined) return window.resetAtUnix * 1000;
+  if (window.resetAfterSeconds !== undefined) return fetchedAtUnixMs + window.resetAfterSeconds * 1000;
+  return null;
+}
+
+/** "2h 14m", "3d 4h", "12m", "under a minute". */
+export function untilText(ms: number): string {
+  const minutes = Math.max(0, Math.round(ms / 60_000));
+  if (minutes < 1) return t("under a minute");
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor((minutes % 1440) / 60);
+  const rest = minutes % 60;
+  if (days > 0) return hours > 0 ? t("{days}d {hours}h", { days, hours }) : t("{days}d", { days });
+  if (hours > 0) return rest > 0 ? t("{hours}h {minutes}m", { hours, minutes: rest }) : t("{hours}h", { hours });
+  return t("{minutes}m", { minutes: rest });
+}
