@@ -526,7 +526,14 @@ export type WorkerSlot = {
   note?: string;
   /** The user's own standing instructions for this worker, sent with every new task it gets. */
   prompt?: string;
+  /** Absent inherits; present with empty arrays enables no optional resources. */
+  resources?: MemberResourceSelection;
 };
+
+export type MemberResourceSelection = { skills: string[]; mcps: string[] };
+export type MemberMcpDependency = { name: string; evidence: "declared" | "reference"; required: boolean; mcpIds: string[] };
+export type MemberResourceEntry = { id: string; kind: "skill" | "mcp"; name: string; description: string; group: string; source?: string; available: boolean; problem: string | null; mcpDependencies?: MemberMcpDependency[]; dependencyNotes?: string[] };
+export type MemberResourceCatalog = { entries: MemberResourceEntry[]; notes: string[]; problem: string | null };
 
 /** The team behind one orchestrator session. */
 export type Combo = {
@@ -1749,6 +1756,8 @@ export const COMMANDS = {
   sessionReporting: "session_reporting",
   sessionSetReporting: "session_set_reporting",
   mcpOverview: "mcp_overview",
+  claudeMemberResources: "claude_member_resources",
+  memberResources: "member_resources_catalog",
   mcpCatalog: "mcp_catalog",
   mcpParse: "mcp_parse",
   mcpInstall: "mcp_install",

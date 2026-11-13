@@ -13,7 +13,8 @@ import { t } from "./i18n";
 import { newPreset, uniqueName, type HelperPreset } from "./team";
 
 export const TEAMS_FORMAT = "thingmaker.teams";
-export const TEAMS_VERSION = 1;
+// Older importers would silently discard a member's resource restrictions.
+export const TEAMS_VERSION = 2;
 
 /** One team as a file carries it. */
 export type TeamFileEntry = { name: string; orchestrator: OrchestratorChoice; combo: Combo };
@@ -28,7 +29,7 @@ export type TeamsFileContent = { teams: TeamFileEntry[]; helpers: WorkerSlot[] }
 export function exportTeams(presets: readonly TeamPreset[], helpers: readonly HelperPreset[] = [], now = new Date()): string {
   const file: TeamsFile = {
     format: TEAMS_FORMAT,
-    version: TEAMS_VERSION,
+    version: presets.some((preset) => preset.combo.workers.some((worker) => worker.resources !== undefined)) || helpers.some((helper) => helper.worker.resources !== undefined) ? TEAMS_VERSION : 1,
     exportedAt: now.toISOString(),
     teams: presets.map((preset) => ({ name: preset.name, orchestrator: { ...preset.orchestrator }, combo: { workers: preset.combo.workers.map((worker) => ({ ...worker })), nativeSubagents: preset.combo.nativeSubagents } })),
     ...(helpers.length > 0 ? { helpers: helpers.map((helper) => ({ ...helper.worker, name: helper.name })) } : {}),
@@ -67,8 +68,14 @@ function readHelper(value: unknown, where: string): WorkerSlot {
   const effort = text(helper.effort);
   const note = text(helper.note);
   const prompt = text(helper.prompt);
+  const resources = helper.resources;
+  if (resources !== undefined && (resources === null || typeof resources !== "object" || !Array.isArray(resources.skills) || !Array.isArray(resources.mcps)
+    || Object.keys(resources).some((key) => key !== "skills" && key !== "mcps")
+    || [...resources.skills, ...resources.mcps].some((id) => typeof id !== "string" || !id.trim()))) {
+    throw new Error(t("Invalid member resource selection."));
+  }
   const capabilities = Array.isArray(helper.capabilities) ? helper.capabilities.filter((capability): capability is string => typeof capability === "string" && capability.trim() !== "").map((capability) => capability.trim()) : [];
-  return { name, provider: helper.provider, ...(model ? { model } : {}), ...(effort ? { effort } : {}), capabilities, ...(note ? { note } : {}), ...(prompt ? { prompt } : {}) };
+  return { name, provider: helper.provider, ...(model ? { model } : {}), ...(effort ? { effort } : {}), capabilities, ...(note ? { note } : {}), ...(prompt ? { prompt } : {}), ...(resources ? { resources: { skills: [...new Set(resources.skills)], mcps: [...new Set(resources.mcps)] } } : {}) };
 }
 
 /** The teams and helpers in a file's text: a teams file, a list of teams, or one team. Throws, saying what is wrong, when it is none of those. */

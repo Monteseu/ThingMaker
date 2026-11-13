@@ -142,6 +142,13 @@ struct HostLauncher {
 }
 
 impl WorkerLauncher for HostLauncher {
+    fn revision(&self, root: &std::path::Path, slot: &thingmaker_supervisor::delegation::WorkerSlot) -> CommandResult<Option<String>> {
+        let state = self.app.state::<AppState>();
+        let resolved = super::member_resources::resolve(&state, root, slot)?;
+        Ok(Some(serde_json::to_string(&serde_json::json!([
+            state.active_account(slot.provider), root, resolved.map(|value| value.revision)
+        ])).unwrap_or_default()))
+    }
     fn launch(&self, spec: WorkerSpec) -> BoxFuture<Result<SessionActor, DesktopError>> {
         let app = self.app.clone();
         Box::pin(async move {
@@ -153,9 +160,14 @@ impl WorkerLauncher for HostLauncher {
                 .ok_or_else(|| DesktopError::not_ready("the orchestrator's workspace is gone"))?;
             let record = super::workspace::ensure_trusted(&state, record)?;
             let reserved = SessionId::reserve();
-            let (target, launch) = super::session::build_launch(&state, &record, spec.slot.provider, spec.slot.model.clone(), spec.slot.effort.clone(), None, reserved.clone())?;
+            let (target, mut launch) = super::session::build_launch(&state, &record, spec.slot.provider, spec.slot.model.clone(), spec.slot.effort.clone(), None, reserved.clone())?;
+            let resource_files = match super::member_resources::resolve(&state, &spec.root, &spec.slot)? {
+                Some(resources) => thingmaker_supervisor::integrations::member_resources::apply_to_launch(resources, &mut launch)?,
+                None => None,
+            };
             let program = super::session::program_of(&target, &launch);
             let mut config = SessionActorConfig::new(target, launch);
+            config.resource_files = resource_files;
             config.environment = super::session::launch_environment(&state).with_program_dir(&program);
             config.before_prompt = Some(super::review::turn_snapshots(&state, &record.id, &record.canonical_root));
             // The worker's own reduced team server: the project memory and the

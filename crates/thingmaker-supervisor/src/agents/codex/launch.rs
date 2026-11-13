@@ -42,6 +42,13 @@ pub struct CodexLaunchOptions {
     /// Config overrides for the thread (`features.multi_agent`, …), beside
     /// the session's MCP servers. The user's `config.toml` is not touched.
     pub config: serde_json::Map<String, Value>,
+    pub resources: Option<CodexResources>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodexResources {
+    pub skills: Vec<PathBuf>,
+    pub mcps: std::collections::BTreeMap<String, Value>,
 }
 
 impl CodexLaunchOptions {
@@ -57,6 +64,7 @@ impl CodexLaunchOptions {
             codex_home: None,
             developer_instructions: None,
             config: serde_json::Map::new(),
+            resources: None,
         }
     }
 

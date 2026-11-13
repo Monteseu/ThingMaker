@@ -37,6 +37,7 @@ toml_edit = "=0.25.13"
 zip = { version = "=8.6.0", default-features = false, features = ["deflate"] }
 reqwest = { version = "=0.13.4", features = ["blocking", "json"] }
 regex = "=1.13.1"
+serde_yaml_ng = "=0.10.0"
 tempfile = { workspace = true }
 
 [target.'cfg(any(unix, windows))'.dependencies]

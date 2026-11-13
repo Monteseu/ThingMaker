@@ -13,6 +13,7 @@ pub mod delegation;
 pub mod forks;
 pub mod git;
 pub mod mcp;
+pub mod member_resources;
 pub mod odyssey;
 pub mod providers;
 pub mod review;

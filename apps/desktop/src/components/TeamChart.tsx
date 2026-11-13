@@ -9,6 +9,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { ORCHESTRATOR_PROVIDERS, PROVIDERS, PROVIDER_LABELS, WORKER_CAPABILITIES, type Combo, type OrchestratorChoice, type Provider, type ProviderModel, type WorkerSlot } from "@thingmaker/contracts";
 import { api } from "../ipc";
 import { useStore } from "../store";
+import { MemberResources } from "./MemberResources";
 import { workerFromPreset, type HelperPreset } from "../team";
 import { ROLE_IDS, modelName, roleEffort, roleOf, roleWorker, suggestModel, usableProviders, withRole, type Catalogs, type RoleId } from "../teamRoles";
 import { ProviderLogo } from "./ProviderLogo";
@@ -606,6 +607,7 @@ export function TeamChart({ orchestrator, combo, onChange }: { orchestrator: Orc
               value={selectedWorker.note ?? ""}
             />
           </label>
+          <MemberResources key={selected} worker={selectedWorker} onChange={(worker) => setWorker(selected, worker)} />
           <label className="field">
             {t("Its own instructions")}
             <textarea

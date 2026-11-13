@@ -45,6 +45,9 @@ pub struct WorkerSlot {
     /// new task it is given.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
+    /// None inherits the provider's setup; Some(empty) enables no optional resources.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resources: Option<crate::integrations::member_resources::ResourceSelection>,
 }
 
 /// How much of a worker's own instructions is sent with a task.
@@ -318,7 +321,7 @@ mod tests {
             effort: None,
             capabilities: capabilities.iter().map(|c| c.to_string()).collect(),
             note: None,
-            prompt: None,
+            prompt: None, resources: None,
         }
     }
 
