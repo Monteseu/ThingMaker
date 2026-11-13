@@ -184,9 +184,25 @@ pub trait TeamExtension: Send + Sync {
 
 /// The host's side: opening a worker session, and forgetting one.
 pub trait WorkerLauncher: Send + Sync {
+    /// Identity of account/configuration and resolved resources. A changed
+    /// revision must never reuse a conversation with the old tool context.
+    fn revision(&self, _root: &std::path::Path, slot: &WorkerSlot) -> Result<Option<String>, DesktopError> {
+        Ok(slot.resources.as_ref().map(|value| serde_json::to_string(value).unwrap_or_default()))
+    }
     /// Opens a worker for `spec`. The actor is registered with the host like
     /// any other attachment, so the user can watch it.
     fn launch(&self, spec: WorkerSpec) -> BoxFuture<Result<SessionActor, DesktopError>>;
+    /// Opens a worker and says the revision it opened with. A host that
+    /// resolves the member's resources to launch it overrides this, so they
+    /// are resolved once rather than once for the revision and again to launch.
+    fn launch_with_revision(&self, spec: WorkerSpec) -> BoxFuture<Result<(SessionActor, Option<String>), DesktopError>> {
+        let revision = self.revision(&spec.root, &spec.slot);
+        let launch = self.launch(spec);
+        Box::pin(async move {
+            let revision = revision?;
+            Ok((launch.await?, revision))
+        })
+    }
     /// A worker the service has stopped; the host drops its registration.
     fn released(&self, worker_handle: &str);
 }
@@ -309,6 +325,7 @@ struct Orchestrator {
 struct JobRecord {
     view: JobView,
     slot: WorkerSlot,
+    revision: Option<String>,
     actor: Option<SessionActor>,
     /// The worker's own MCP token, while its session is open.
     token: Option<String>,
@@ -544,6 +561,23 @@ impl Delegation {
         self.bump();
     }
 
+    /// The revision of each member a job for `args` could go to, worked out
+    /// without the state lock held.
+    fn candidate_revisions(&self, session: &str, args: &DelegateArgs) -> Revisions {
+        let (team, follow_up) = {
+            let state = self.state();
+            let follow_up = args.continue_job.as_deref().and_then(|id| state.jobs.get(id)).map(|record| record.slot.name.clone());
+            (state.orchestrators.get(session).map(|orchestrator| (orchestrator.root.clone(), team_for(&orchestrator.combo, args, orchestrator.provider))), follow_up)
+        };
+        let Some((root, team)) = team else { return Revisions::default() };
+        // A follow-up stays with its own worker; a new job may go to anyone.
+        let members = team.workers.into_iter().filter(|slot| follow_up.as_ref().is_none_or(|name| *name == slot.name)).map(|slot| {
+            let revision = self.inner.launcher.revision(&root, &slot).map_err(|error| error.message);
+            (slot, revision)
+        });
+        Revisions { members: members.collect(), root }
+    }
+
     /// Starts a job and answers at once with its view.
     pub fn delegate(&self, session: &str, args: DelegateArgs) -> Result<JobView, String> {
         let task = args.task.trim();
@@ -551,8 +585,15 @@ impl Delegation {
             return Err("The task is empty. Describe the work the worker should do.".into());
         }
         let now = now_unix_ms();
-        let mut queued: Option<(Wait, u64)> = None;
-        let (view, slot, reuse, root, orchestrator_provider) = {
+        let mut queued: Option<(Wait, u64)>;
+        let mut attempt = 0;
+        let (view, slot, reuse, root, orchestrator_provider) = loop {
+            attempt += 1;
+            queued = None;
+            // Worked out before the lock: resolving a member's resources reads
+            // the disk, and other delegation calls must not wait on that. A
+            // team edited in between is read again.
+            let revisions = self.candidate_revisions(session, &args);
             let mut state = self.state();
             let Some(orchestrator) = state.orchestrators.get(session) else {
                 return Err("This session is not an orchestrator in ThingMaker.".into());
@@ -578,13 +619,21 @@ impl Delegation {
                     if !record.view.status.is_finished() {
                         return Err(format!("Job {previous} is still running; await it first."));
                     }
+                    let current = combo.worker(&record.slot.name).ok_or_else(|| "The previous worker is no longer on this team. Delegate a new job.".to_string())?;
+                    let Some(revision) = revisions.of(&root, current) else {
+                        if attempt < 3 { continue }
+                        return Err(TEAM_CHANGED.into());
+                    };
+                    if !same_abilities(current, &record.slot) || revision? != record.revision {
+                        return Err("This worker's configuration changed. Delegate a new job to start a fresh session with its current resources.".into());
+                    }
                     let Some(actor) = record.actor.clone() else {
                         return Err(format!("Job {previous}'s worker is no longer open; delegate a new job instead."));
                     };
                     if state.jobs.values().any(|other| !other.view.status.is_finished() && other.view.worker_session.as_deref() == Some(actor.handle().id.as_str())) {
                         return Err(format!("Job {previous}'s worker is busy with another follow-up."));
                     }
-                    (Route { slot: record.slot.clone(), rerouted_from: None }, Some((previous.to_string(), actor)))
+                    (Route { slot: current.clone(), rerouted_from: None }, Some((previous.to_string(), actor)))
                 }
                 None => match route(&combo, args.worker.as_deref(), args.capability.as_deref(), &state.quotas, &[], now) {
                     Ok(route) => (route, None),
@@ -607,7 +656,12 @@ impl Delegation {
             };
             // A worker that finished an earlier job on the same slot and has
             // nothing to do takes this one: no start, and a warm cache.
-            let warm = if reuse.is_none() && queued.is_none() { warm_worker(&state, session, &route.slot) } else { None };
+            let Some(revision) = revisions.of(&root, &route.slot) else {
+                if attempt < 3 { continue }
+                return Err(TEAM_CHANGED.into());
+            };
+            let revision = revision?;
+            let warm = if reuse.is_none() && queued.is_none() { warm_worker(&state, session, &route.slot, &revision) } else { None };
             let reuse = reuse.or_else(|| warm.clone().map(|actor| (String::new(), actor)));
             state.serial += 1;
             let id = format!("job-{}", state.serial);
@@ -642,9 +696,9 @@ impl Delegation {
                     WorkerIdentity { orchestrator: session.to_string(), provider: route.slot.provider, root: root.clone(), name: route.slot.name.clone(), job_id: id.clone() },
                 );
             }
-            state.jobs.insert(id.clone(), JobRecord { view: view.clone(), slot: route.slot.clone(), actor: reuse.as_ref().map(|(_, actor)| actor.clone()), token });
+            state.jobs.insert(id.clone(), JobRecord { view: view.clone(), slot: route.slot.clone(), revision, actor: reuse.as_ref().map(|(_, actor)| actor.clone()), token });
             state.order.entry(session.to_string()).or_default().push(id);
-            (view, route.slot, reuse.map(|(_, actor)| actor), root, orchestrator_provider)
+            break (view, route.slot, reuse.map(|(_, actor)| actor), root, orchestrator_provider);
         };
         (self.inner.on_change)(&view);
         self.bump();
@@ -733,13 +787,21 @@ impl Delegation {
             }
             let worker = match actor.take() {
                 Some(worker) => worker,
-                None => match self.inner.launcher.launch(spec.clone()).await {
-                    Ok(worker) => worker,
-                    Err(error) => {
-                        self.finish(&job_id, JobStatus::Failed, None, Some(format!("{} could not start: {}", spec.slot.describe(), error.message)));
-                        return;
+                None => {
+                    // A queued/rerouted job may now use a different account or
+                    // config than when it was accepted. Record the launch's
+                    // revision, not the stale scheduling-time revision.
+                    match self.inner.launcher.launch_with_revision(spec.clone()).await {
+                        Ok((worker, revision)) => {
+                            self.update(&job_id, |record| record.revision = revision);
+                            worker
+                        }
+                        Err(error) => {
+                            self.finish(&job_id, JobStatus::Failed, None, Some(format!("{} could not start: {}", spec.slot.describe(), error.message)));
+                            return;
+                        }
                     }
-                },
+                }
             };
             let handle = worker.handle().id.clone();
             let agent_session_id = worker.snapshot().await.ok().and_then(|snapshot| snapshot.agent_session_id);
@@ -1306,12 +1368,38 @@ pub fn looks_rate_limited(error: &str) -> bool {
     ["rate_limit", "rate limit", "usage limit", "hit your", "quota", "limit reached", "usagelimitexceeded"].iter().any(|needle| lower.contains(needle))
 }
 
+/// Members' revisions, taken before the state lock, for one delegation.
+#[derive(Default)]
+struct Revisions {
+    root: PathBuf,
+    members: Vec<(WorkerSlot, Result<Option<String>, String>)>,
+}
+
+impl Revisions {
+    /// `None` when the team changed since they were taken.
+    fn of(&self, root: &std::path::Path, slot: &WorkerSlot) -> Option<Result<Option<String>, String>> {
+        if self.root != root {
+            return None;
+        }
+        self.members.iter().find(|(member, _)| member == slot).map(|(_, revision)| revision.clone())
+    }
+}
+
+const TEAM_CHANGED: &str = "The team kept changing while this job was being delegated. Try again.";
+
+/// Whether an open worker can take on work meant for `slot`: what it can do
+/// is the same. Its note and capabilities only guide the orchestrator, and its
+/// standing instructions go with each new task, so editing those keeps it.
+fn same_abilities(open: &WorkerSlot, slot: &WorkerSlot) -> bool {
+    open.name == slot.name && open.provider == slot.provider && open.model == slot.model && open.effort == slot.effort && open.resources == slot.resources
+}
+
 /// What a worker is told. It has none of the orchestrator's conversation, so
 /// the task has to stand alone; and its last message is its report, so it is
 /// asked to make that message one.
 /// A worker that finished an earlier job on this slot, is free, and has not
 /// taken its share of jobs yet.
-fn warm_worker(state: &State, session: &str, slot: &WorkerSlot) -> Option<SessionActor> {
+fn warm_worker(state: &State, session: &str, slot: &WorkerSlot, revision: &Option<String>) -> Option<SessionActor> {
     let ids = state.order.get(session)?;
     for id in ids.iter().rev() {
         let Some(record) = state.jobs.get(id) else { continue };
@@ -1319,7 +1407,7 @@ fn warm_worker(state: &State, session: &str, slot: &WorkerSlot) -> Option<Sessio
             continue;
         }
         let Some(actor) = &record.actor else { continue };
-        if record.slot.name != slot.name || record.slot.provider != slot.provider || record.slot.model != slot.model || record.slot.effort != slot.effort {
+        if !same_abilities(&record.slot, slot) || &record.revision != revision {
             continue;
         }
         let handle = actor.handle().id.as_str();
@@ -1377,7 +1465,7 @@ mod tests {
 
     #[test]
     fn a_pinned_job_routes_against_its_own_worker_alone() {
-        let slot = |name: &str, provider| WorkerSlot { name: name.into(), provider, model: None, effort: None, capabilities: Vec::new(), note: None, prompt: None };
+        let slot = |name: &str, provider| WorkerSlot { name: name.into(), provider, model: None, effort: None, capabilities: Vec::new(), note: None, prompt: None, resources: None };
         let combo = Combo { workers: vec![slot("Reviewer A", Provider::Claude), slot("Reviewer B", Provider::Codex)], native_subagents: false };
         let pinned = DelegateArgs { task: "review".into(), worker: Some("Reviewer A".into()), pinned: true, ..DelegateArgs::default() };
         assert_eq!(team_for(&combo, &pinned, Provider::Claude).workers.iter().map(|w| w.name.as_str()).collect::<Vec<_>>(), ["Reviewer A"]);
@@ -1392,7 +1480,7 @@ mod tests {
 
     #[test]
     fn a_local_lead_hires_only_local_helpers() {
-        let slot = |name: &str, provider| WorkerSlot { name: name.into(), provider, model: None, effort: None, capabilities: Vec::new(), note: None, prompt: None };
+        let slot = |name: &str, provider| WorkerSlot { name: name.into(), provider, model: None, effort: None, capabilities: Vec::new(), note: None, prompt: None, resources: None };
         let combo = Combo { workers: vec![slot("Cloud", Provider::Claude), slot("Coder", Provider::Local)], native_subagents: false };
         let args = DelegateArgs { task: "edit".into(), ..DelegateArgs::default() };
         let team = team_for(&combo, &args, Provider::Local);

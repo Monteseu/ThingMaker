@@ -17,21 +17,63 @@ use crate::{
         Provider,
         auth::{ProviderAuthStatus, ProviderModel},
     },
-    security::EnvironmentProfile,
 };
+
+/// Where `agy` publishes its releases, one manifest per platform, each a
+/// JSON object with `version`, `url` and `sha512`. This is the same host and
+/// path the official installer reads (`antigravity.google/cli/install.sh`),
+/// and the request is an anonymous GET: no process, so no console window,
+/// which is the whole reason the desktop asks here rather than running the
+/// CLI (`launch::DISABLE_AUTO_UPDATE`).
+const RELEASES: &str = "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests";
+
+/// This computer's manifest name. Every platform's manifest carries the same
+/// release, but asking for our own keeps the answer true if that stops being
+/// so.
+fn platform() -> Option<&'static str> {
+    Some(match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("windows", "x86_64") => "windows_amd64",
+        ("windows", "aarch64") => "windows_arm64",
+        ("macos", "aarch64") => "darwin_arm64",
+        ("macos", "x86_64") => "darwin_amd64",
+        ("linux", "x86_64") => "linux_amd64",
+        ("linux", "aarch64") => "linux_arm64",
+        _ => return None,
+    })
+}
+
+/// The newest `agy` released for this computer. Read-only: it downloads
+/// nothing and updates nothing.
+pub fn latest_version(timeout: Duration) -> Result<String, String> {
+    let platform = platform().ok_or("Antigravity publishes no build for this platform")?;
+    let client = reqwest::blocking::Client::builder().timeout(timeout).build().map_err(|error| error.to_string())?;
+    let response = client
+        .get(format!("{RELEASES}/{platform}.json"))
+        .send()
+        .map_err(|error| format!("could not reach the Antigravity release server: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("the Antigravity release server answered {}", response.status()));
+    }
+    let manifest: serde_json::Value = response.json().map_err(|error| format!("could not read the release manifest: {error}"))?;
+    manifest
+        .get("version")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| "the release manifest named no version".into())
+}
 
 /// What to tell someone who is not signed in.
 pub const SIGN_IN_HINT: &str = "Sign in through the Antigravity app, or run `agy` once in a terminal and follow its sign-in.";
 
 /// `agy models`, with a bound, in the documented environment.
 pub fn read_models(program: &Path, timeout: Duration) -> Result<Vec<ProviderModel>, String> {
-    let env = EnvironmentProfile::trusted_local().resolve(std::env::vars());
+    let env = super::launch::environment().resolve(std::env::vars());
     read_models_with(program, &env, timeout)
 }
 
 /// `agy models` with an environment already resolved (a session's own).
 pub fn read_models_with(program: &Path, env: &BTreeMap<String, String>, timeout: Duration) -> Result<Vec<ProviderModel>, String> {
-    let mut child = Command::new(program)
+    let mut child = crate::platform::no_window(&mut Command::new(program))
         .arg("models")
         .current_dir(std::env::temp_dir())
         .env_clear()
@@ -108,5 +150,19 @@ mod tests {
         assert_eq!(ids, ["gemini-3.8-flash-low", "gemini-3.1-pro-high", "claude-opus-4-6-thinking"]);
         assert_eq!(models[1].name, "Gemini 3.1 Pro (High)");
         assert!(models_from_list("Fetching available models...\n").is_empty());
+    }
+
+    #[test]
+    fn every_platform_the_desktop_runs_on_has_a_release_manifest() {
+        // The desktop ships for these platforms; a build here whose name
+        // we do not know would silently never find an update.
+        assert!(platform().is_some(), "no agy manifest for {}/{}", std::env::consts::OS, std::env::consts::ARCH);
+    }
+
+    #[test]
+    #[ignore = "asks the public Antigravity release server"]
+    fn the_release_manifest_names_a_version() {
+        let version = latest_version(Duration::from_secs(30)).expect("a published version");
+        assert!(crate::agents::versions::version_in(&version).is_some(), "not a version: {version}");
     }
 }

@@ -18,4 +18,12 @@ export const accounts: Record<string, string> = {
   "Account": "Cuenta",
   "Not signed in": "Sin sesión",
   "Signing in…": "Iniciando sesión…",
+  "Usage back in": "Uso disponible en",
+  "{when} · {window} window, at {time}": "{when} · ventana de {window}, a las {time}",
+  "under a minute": "menos de un minuto",
+  "{days}d {hours}h": "{days} d {hours} h",
+  "{days}d": "{days} d",
+  "{hours}h {minutes}m": "{hours} h {minutes} min",
+  "{hours}h": "{hours} h",
+  "{minutes}m": "{minutes} min",
 };

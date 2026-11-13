@@ -396,7 +396,7 @@ pub fn open_in_editor(request: OpenInEditorRequest, state: State<'_, AppState>) 
             }
         }
     };
-    std::process::Command::new(program)
+    thingmaker_supervisor::platform::command(program)
         .args(args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())

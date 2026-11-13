@@ -16,6 +16,19 @@ const preset = (name: string, id = name): TeamPreset => ({
 });
 
 describe("exporting teams", () => {
+  it("round-trips restrictions, distinguishes empty from inherited, and rejects malformed policies", () => {
+    const team = preset("Restricted");
+    team.combo.workers[0]!.resources = { skills: ["skill:user:art"], mcps: [] };
+    expect(JSON.parse(exportTeams([team])).version).toBe(2);
+    const roundtrip = readTeamsFile(exportTeams([team]));
+    expect(roundtrip.teams[0]?.combo.workers[0]?.resources).toEqual({ skills: ["skill:user:art"], mcps: [] });
+    team.combo.workers[0]!.resources = { skills: [], mcps: [] };
+    expect(readTeamsFile(exportTeams([team])).teams[0]?.combo.workers[0]?.resources).toEqual({ skills: [], mcps: [] });
+    expect(readTeamsFile(exportTeams([preset("Inherited")])).teams[0]?.combo.workers[0]?.resources).toBeUndefined();
+    const malformed = JSON.parse(exportTeams([team]));
+    malformed.teams[0].combo.workers[0].resources = { skills: "all", mcps: [] };
+    expect(() => readTeamsFile(JSON.stringify(malformed))).toThrow("Invalid member resource selection");
+  });
   it("writes the teams without ids, in a file that says what it is", () => {
     const file = JSON.parse(exportTeams([preset("Art crew"), preset("Solo")], [], new Date("2026-11-06T00:00:00Z")));
     expect(file).toMatchObject({ format: TEAMS_FORMAT, version: 1, exportedAt: "2026-11-06T00:00:00.000Z" });

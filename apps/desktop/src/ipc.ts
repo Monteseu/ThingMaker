@@ -67,6 +67,7 @@ import {
   type McpCatalogEntry,
   type McpInstallOutcome,
   type McpOverview,
+  type MemberResourceCatalog,
   type McpProbe,
   type McpScope,
   type McpServerSpec,
@@ -88,6 +89,7 @@ import {
   type RuntimeEnvInfo,
   type ClaudeAccountStatus,
   type WipeReport,
+  type RenameReport,
   type WorkspaceImage,
   type ImportPlan,
   type ArtifactContent,
@@ -188,6 +190,9 @@ export const api = {
   screenStreamAck: (id: string, sequence: number) => call<void>(COMMANDS.screenStreamAck, { id, sequence }),
   screenStreamHeartbeat: (id: string) => call<void>(COMMANDS.screenStreamHeartbeat, { id }),
   executionProfiles: () => call<ProfileInfo[]>(COMMANDS.executionProfiles),
+  screenToolsStatus: () => call<import("@thingmaker/contracts").ScreenTools>(COMMANDS.screenToolsStatus),
+  screenToolsInstall: (plan: string[]) => call<import("@thingmaker/contracts").ScreenToolsInstall>(COMMANDS.screenToolsInstall, { plan }),
+  screenToolsCancel: () => call<void>(COMMANDS.screenToolsCancel),
   workspaceInspect: (path: string) => call<WorkspaceInspection>(COMMANDS.workspaceInspect, { path }),
   workspaceTrust: (workspaceId: string, state: TrustState, trustDigest: string) =>
     call<WorkspaceInspection>(COMMANDS.workspaceTrust, { request: { workspaceId, state, trustDigest } }),
@@ -266,6 +271,7 @@ export const api = {
   skillRemove: (scope: SkillScope, workspaceId: string | null, directoryName: string, keepBackup: boolean) =>
     call<RemovedSkill>(COMMANDS.skillRemove, { request: { scope, workspaceId, directoryName, keepBackup } }),
   mcpOverview: (workspaceId: string | null) => call<McpOverview>(COMMANDS.mcpOverview, { workspaceId }),
+  memberResources: (workspaceId: string | null, provider: Provider) => call<MemberResourceCatalog>(COMMANDS.memberResources, { workspaceId, provider }),
   mcpCatalog: () => call<McpCatalogEntry[]>(COMMANDS.mcpCatalog),
   mcpParse: (text: string, name?: string) => call<McpServerSpec[]>(COMMANDS.mcpParse, { request: { text, name: name ?? null } }),
   mcpInstall: (workspaceId: string | null, spec: McpServerSpec, providers: Provider[], scope: McpScope) =>
@@ -277,6 +283,7 @@ export const api = {
   runtimeEnvRemove: (name: string) => call<string[]>(COMMANDS.runtimeEnvRemove, { name }),
   workspaceRemove: (workspaceId: string) => call<void>(COMMANDS.workspaceRemove, { workspaceId }),
   workspaceWipeSessions: (workspaceId: string) => call<WipeReport>(COMMANDS.workspaceWipeSessions, { workspaceId }),
+  workspaceRenameFolder: (workspaceId: string, newName: string) => call<RenameReport>(COMMANDS.workspaceRenameFolder, { workspaceId, newName }),
   workspaceImage: (workspaceId: string, relative: string) => call<WorkspaceImage>(COMMANDS.workspaceImage, { workspaceId, relative }),
   generatedImage: (path: string) => call<WorkspaceImage>(COMMANDS.generatedImage, { path }),
   localImage: (path: string) => call<WorkspaceImage>(COMMANDS.localImage, { path }),

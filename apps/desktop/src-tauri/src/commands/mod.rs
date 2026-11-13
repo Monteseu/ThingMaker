@@ -6,6 +6,7 @@
 pub mod app;
 pub mod screen;
 pub mod screen_stream;
+pub mod screen_tools;
 pub mod suggestions;
 pub mod artifacts;
 pub mod attachments;
@@ -13,6 +14,7 @@ pub mod delegation;
 pub mod forks;
 pub mod git;
 pub mod mcp;
+pub mod member_resources;
 pub mod odyssey;
 pub mod providers;
 pub mod review;
@@ -27,6 +29,7 @@ pub mod local;
 pub mod accounts;
 pub mod update;
 pub mod workspace;
+pub mod rename;
 pub mod wipe;
 
 use thingmaker_supervisor::DesktopError;

@@ -7,9 +7,10 @@ import { useStore, sessionTitle, basenameOf as basename } from "../store";
 import { api } from "../ipc";
 import { ProviderBadge } from "./ProviderMark";
 import { NavArrows } from "./TopBar";
-import { UsageMeter } from "./UsageMeter";
+import { pairWindows, UsageMeter, type WindowPair } from "./UsageMeter";
 import { ProviderLogo } from "./ProviderLogo";
 import { WipeDialog } from "./WipeDialog";
+import { RenameFolderDialog } from "./RenameFolderDialog";
 import { t } from "../i18n";
 import {
   IconChevron,
@@ -236,7 +237,7 @@ function SessionRow({
 
 /** Right-click (or the ⋯ action) menu for one session row. */
 /** A project's right-click menu. */
-function ProjectMenu({ workspaceId, at, onClose, onWipe, onRemove }: { workspaceId: string; at: { x: number; y: number }; onClose: () => void; onWipe: () => void; onRemove: () => void }) {
+function ProjectMenu({ workspaceId, at, onClose, onWipe, onRemove, onRenameFolder }: { workspaceId: string; at: { x: number; y: number }; onClose: () => void; onWipe: () => void; onRemove: () => void; onRenameFolder: () => void }) {
   const root = useStore((s) => s.workspaces.find((workspace) => workspace.id === workspaceId)?.canonicalRoot);
   const setError = useStore((s) => s.setError);
   const menu = useRef<HTMLDivElement>(null);
@@ -266,6 +267,9 @@ function ProjectMenu({ workspaceId, at, onClose, onWipe, onRemove }: { workspace
           {t("Open folder")}
         </button>
       )}
+      <button className="context-item" onClick={act(onRenameFolder)} role="menuitem" title={t("Rename the folder on disk; sessions and settings follow it")} type="button">
+        {t("Rename folder…")}
+      </button>
       <button className="context-item context-item-danger" onClick={act(onWipe)} role="menuitem" title={t("Permanently delete every Claude Code and Codex session ThingMaker ran in this project, from this computer")} type="button">
         {t("Wipe all sessions…")}
       </button>
@@ -555,6 +559,7 @@ export function Sidebar() {
   const renameSession = useStore((s) => s.renameSession);
   const removeWorkspace = useStore((s) => s.removeWorkspace);
   const [removing, setRemoving] = useState<{ id: string; name: string; live: number } | null>(null);
+  const [renamingFolder, setRenamingFolder] = useState<string | null>(null);
   const [wiping, setWiping] = useState<{ id: string; name: string } | null>(null);
   const [projectMenu, setProjectMenu] = useState<{ id: string; name: string; live: number; at: { x: number; y: number } } | null>(null);
 
@@ -879,11 +884,13 @@ export function Sidebar() {
           at={projectMenu.at}
           onClose={() => setProjectMenu(null)}
           onRemove={() => setRemoving({ id: projectMenu.id, name: projectMenu.name, live: projectMenu.live })}
+          onRenameFolder={() => setRenamingFolder(projectMenu.id)}
           onWipe={() => setWiping({ id: projectMenu.id, name: projectMenu.name })}
           workspaceId={projectMenu.id}
         />
       )}
       {wiping && <WipeDialog name={wiping.name} onClose={() => setWiping(null)} workspaceId={wiping.id} />}
+      {renamingFolder && <RenameFolderDialog onClose={() => setRenamingFolder(null)} workspaceId={renamingFolder} />}
       {removing && (
         <div aria-modal="true" className="modal-backdrop" role="dialog">
           <div className="modal">
@@ -926,19 +933,18 @@ export function Sidebar() {
             const snapshot = usage[provider];
             if (!snapshot?.primary) return null;
             const title = t("{provider}, account-wide. Details in a session's Context tab.", { provider: `${PROVIDER_LABELS[provider]}${snapshot.planType ? ` (${snapshot.planType})` : ""}` });
-            const windows = snapshot.windows ?? [snapshot.primary, ...(snapshot.secondary ? [snapshot.secondary] : [])];
-            const columns = snapshot.windows ? 1 : 2;
-            return Array.from({ length: Math.ceil(windows.length / columns) }, (_, row) => {
-              const first = windows[row * columns]!;
-              const second = columns === 2 ? windows[row * columns + 1] : undefined;
-              return (
-                <div className={`sidebar-meter-row ${columns === 1 ? "sidebar-meter-row-model" : ""}`} key={`${provider}-${row}`} title={snapshot.limitReached ? `${title} · ${t("limit reached")}` : title}>
-                  <span className={`sidebar-meter-name ${snapshot.limitReached ? "sidebar-meter-limit" : ""}`}>{row === 0 && <ProviderLogo provider={provider} size={16} />}</span>
-                  <UsageMeter usage={first} />
-                  {columns === 2 && (second ? <UsageMeter usage={second} /> : <span />)}
-                </div>
-              );
-            });
+            const pairs: WindowPair[] = snapshot.windows
+              ? pairWindows(snapshot.windows)
+              : [{ short: snapshot.primary, ...(snapshot.secondary ? { long: snapshot.secondary } : {}) }];
+            return pairs.map((pair, row) => (
+              <div className="sidebar-meter-row" key={`${provider}-${row}`} title={snapshot.limitReached ? `${title} · ${t("limit reached")}` : title}>
+                <span className={`sidebar-meter-name ${snapshot.limitReached ? "sidebar-meter-limit" : ""}`}>{row === 0 && <ProviderLogo provider={provider} size={16} />}</span>
+                {pair.short
+                  ? <UsageMeter usage={pair.short} {...(pair.group ? { shortName: `${pair.group} · 5h` } : {})} />
+                  : <span className="sidebar-meter-group">{pair.group}</span>}
+                {pair.long ? <UsageMeter usage={pair.long} {...(pair.group ? { shortName: "7d" } : {})} /> : <span />}
+              </div>
+            ));
           })}
         </div>}
         {IS_REMOTE && <PhoneAppSettings />}

@@ -137,12 +137,29 @@ pub async fn release(state: &AppState, key: &str) {
     }
 }
 
+/// What a worker opened with: its account, its workspace and its resolved
+/// resources. A worker whose revision changed is not reused.
+fn revision_of(state: &AppState, root: &std::path::Path, slot: &thingmaker_supervisor::delegation::WorkerSlot, resolved: Option<&thingmaker_supervisor::integrations::member_resources::ResolvedResources>) -> String {
+    serde_json::to_string(&serde_json::json!([
+        state.active_account(slot.provider), root, resolved.map(|value| &value.revision)
+    ])).unwrap_or_default()
+}
+
 struct HostLauncher {
     app: AppHandle,
 }
 
 impl WorkerLauncher for HostLauncher {
+    fn revision(&self, root: &std::path::Path, slot: &thingmaker_supervisor::delegation::WorkerSlot) -> CommandResult<Option<String>> {
+        let state = self.app.state::<AppState>();
+        let resolved = super::member_resources::resolve(&state, root, slot)?;
+        Ok(Some(revision_of(&state, root, slot, resolved.as_ref())))
+    }
     fn launch(&self, spec: WorkerSpec) -> BoxFuture<Result<SessionActor, DesktopError>> {
+        let launched = self.launch_with_revision(spec);
+        Box::pin(async move { launched.await.map(|(actor, _)| actor) })
+    }
+    fn launch_with_revision(&self, spec: WorkerSpec) -> BoxFuture<Result<(SessionActor, Option<String>), DesktopError>> {
         let app = self.app.clone();
         Box::pin(async move {
             let state = app.state::<AppState>();
@@ -153,9 +170,17 @@ impl WorkerLauncher for HostLauncher {
                 .ok_or_else(|| DesktopError::not_ready("the orchestrator's workspace is gone"))?;
             let record = super::workspace::ensure_trusted(&state, record)?;
             let reserved = SessionId::reserve();
-            let (target, launch) = super::session::build_launch(&state, &record, spec.slot.provider, spec.slot.model.clone(), spec.slot.effort.clone(), None, reserved.clone())?;
+            let (target, mut launch) = super::session::build_launch(&state, &record, spec.slot.provider, spec.slot.model.clone(), spec.slot.effort.clone(), None, reserved.clone())?;
+            // Resolved once: the revision recorded is the one this launch used.
+            let resolved = super::member_resources::resolve(&state, &spec.root, &spec.slot)?;
+            let revision = revision_of(&state, &spec.root, &spec.slot, resolved.as_ref());
+            let resource_files = match resolved {
+                Some(resources) => thingmaker_supervisor::integrations::member_resources::apply_to_launch(resources, &mut launch)?,
+                None => None,
+            };
             let program = super::session::program_of(&target, &launch);
             let mut config = SessionActorConfig::new(target, launch);
+            config.resource_files = resource_files;
             config.environment = super::session::launch_environment(&state).with_program_dir(&program);
             config.before_prompt = Some(super::review::turn_snapshots(&state, &record.id, &record.canonical_root));
             // The worker's own reduced team server: the project memory and the
@@ -182,7 +207,7 @@ impl WorkerLauncher for HostLauncher {
             });
             state.insert_actor(actor.handle().id.clone(), recorded, actor.clone(), spec.root.clone());
             state.set_actor_model(&actor.handle().id, spec.slot.model.as_deref());
-            Ok(actor)
+            Ok((actor, Some(revision)))
         })
     }
 

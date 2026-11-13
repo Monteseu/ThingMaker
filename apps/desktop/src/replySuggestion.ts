@@ -5,6 +5,9 @@ import { api } from "./ipc";
 
 /** Last reply on either side of the last user turn; never thoughts or tools. */
 export function suggestionMessages(cards: readonly Card[]): [string, string, string] | null {
+  // Only the agent's final message: nothing it did (tools, thoughts, plans) may follow it.
+  const lastWork = [...cards].reverse().find((card) => card.kind === "message" || card.kind === "tool" || card.kind === "plan" || card.kind === "permission");
+  if (!lastWork || lastWork.kind !== "message" || lastWork.message.role !== "agent") return null;
   const messages = cards.filter((card): card is Extract<Card, { kind: "message" }> => card.kind === "message" && card.message.role !== "thought");
   const latest = messages.at(-1);
   if (!latest || latest.message.role !== "agent") return null;

@@ -13,6 +13,7 @@
 
 pub mod bridge;
 pub mod launch;
+pub mod resources;
 pub mod probe;
 pub mod quota;
 pub mod subagents;

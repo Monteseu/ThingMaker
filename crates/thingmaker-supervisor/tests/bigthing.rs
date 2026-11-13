@@ -416,8 +416,8 @@ async fn the_runner_hands_ready_tasks_to_workers_in_parallel_and_has_them_review
     let Some(fixture) = fixture_with(&["--follow-plan"]) else { return };
     let team = Combo {
         workers: vec![
-            WorkerSlot { name: "luna".into(), provider: Provider::Codex, model: Some("gpt-6-luna".into()), effort: None, capabilities: vec!["code".into()], note: None, prompt: None },
-            WorkerSlot { name: "sonnet".into(), provider: Provider::Claude, model: None, effort: None, capabilities: vec!["review".into()], note: None, prompt: None },
+            WorkerSlot { name: "luna".into(), provider: Provider::Codex, model: Some("gpt-6-luna".into()), effort: None, capabilities: vec!["code".into()], note: None, prompt: None, resources: None },
+            WorkerSlot { name: "sonnet".into(), provider: Provider::Claude, model: None, effort: None, capabilities: vec!["review".into()], note: None, prompt: None, resources: None },
         ],
         native_subagents: false,
     };
@@ -452,7 +452,7 @@ async fn a_review_loop_sends_the_work_back_and_the_run_waits_for_your_approval()
     use thingmaker_supervisor::storage::odyssey::{Dispatch, GoalEdit, QuestionState, StepEdit, StepKind, StepState};
     let Some(fixture) = fixture_with(&["--follow-plan"]) else { return };
     let team = Combo {
-        workers: vec![WorkerSlot { name: "luna".into(), provider: Provider::Codex, model: Some("gpt-6-luna".into()), effort: None, capabilities: vec!["code".into()], note: None, prompt: None }],
+        workers: vec![WorkerSlot { name: "luna".into(), provider: Provider::Codex, model: Some("gpt-6-luna".into()), effort: None, capabilities: vec!["code".into()], note: None, prompt: None, resources: None }],
         native_subagents: false,
     };
     let (goal_id, live) = fixture.goal_with(1, Some(team)).await;

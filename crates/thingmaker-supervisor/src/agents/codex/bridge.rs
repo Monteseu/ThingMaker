@@ -23,6 +23,7 @@
 
 use std::{
     collections::HashMap,
+    path::Path,
     sync::{
         Arc, Mutex, MutexGuard,
         atomic::{AtomicU64, Ordering},
@@ -283,8 +284,18 @@ impl CodexBridge {
             .filter_map(|server| server.get("name").and_then(Value::as_str).map(str::to_string))
             .collect();
         let mut config = inner.launch.config.clone();
+        if let Some(resources) = &inner.launch.resources {
+            let roots: std::collections::BTreeSet<_> = resources.skills.iter().filter_map(|path| path.parent().and_then(Path::parent)).map(Path::to_path_buf).collect();
+            inner.codex.request("skills/extraRoots/set", json!({"extraRoots":roots}), timeout).await?;
+            let discovered = inner.codex.request("skills/list", json!({"cwds":[cwd],"forceReload":true}), timeout).await?;
+            let effective = inner.codex.request("config/read", json!({"includeLayers":false,"cwd":cwd}), timeout).await?;
+            config.extend(super::resources::overrides(&effective, &discovered, resources).map_err(|message| remote(jsonrpc::INTERNAL_ERROR, &message))?);
+        }
         if let Some(Value::Object(servers)) = mcp_config(params.get("mcpServers")) {
-            config.extend(servers);
+            if inner.launch.resources.is_some() {
+                let mcps = config.get_mut("mcp_servers").and_then(Value::as_object_mut).ok_or_else(|| remote(jsonrpc::INTERNAL_ERROR, "Missing restricted MCP configuration"))?;
+                for (key, server) in servers { mcps.insert(key.trim_start_matches("mcp_servers.").to_string(), server); }
+            } else { config.extend(servers); }
         }
         if !config.is_empty() {
             thread["config"] = Value::Object(config);
@@ -839,7 +850,9 @@ async fn on_request(inner: &Inner, id: RequestId, method: &str, params: Value) {
         // whether one of the desktop's own tools may run. Anything else
         // wants a person to type something, and there is no person here.
         let own = inner.state().session_servers.iter().any(|name| name == server);
-        if !own || params.get("mode").and_then(Value::as_str) != Some("form") {
+        let selected_confirmation = inner.launch.resources.as_ref().is_some_and(|resources| resources.mcps.contains_key(server))
+            && confirmation_only(params.get("requestedSchema"));
+        if (!own && !selected_confirmation) || params.get("mode").and_then(Value::as_str) != Some("form") {
             let _ = inner.codex.respond(&id, json!({ "action": "decline", "content": null, "_meta": null })).await;
             return;
         }
@@ -890,6 +903,15 @@ async fn on_request(inner: &Inner, id: RequestId, method: &str, params: Value) {
             })),
         })
         .await;
+}
+
+/// Native MCP tool approval has an empty form. Selected third-party servers
+/// may use the normal workspace approval gate for that confirmation, but must
+/// never receive invented answers to forms requesting actual user data.
+fn confirmation_only(schema: Option<&Value>) -> bool {
+    schema.is_some_and(|schema| schema["type"] == "object"
+        && schema["properties"].as_object().is_some_and(|properties| properties.is_empty())
+        && schema.get("required").is_none_or(|value| value.as_array().is_some_and(|items| items.is_empty())))
 }
 
 /// How the bridge opens a Codex thread for an ACP session request.
@@ -963,5 +985,12 @@ mod tests {
         assert_eq!(config["mcp_servers.thingmaker"]["command"], "/bin/thingmaker-mcp");
         assert_eq!(config["mcp_servers.thingmaker"]["env"]["TOKEN"], "t");
         assert_eq!(mcp_config(Some(&json!([]))), None);
+    }
+
+    #[test]
+    fn third_party_mcp_confirmations_never_invent_answers_to_data_forms() {
+        assert!(confirmation_only(Some(&json!({"type":"object","properties":{}}))));
+        assert!(!confirmation_only(Some(&json!({"type":"object","properties":{"email":{"type":"string"}},"required":["email"]}))));
+        assert!(!confirmation_only(None));
     }
 }

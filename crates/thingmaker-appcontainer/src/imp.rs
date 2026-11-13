@@ -78,11 +78,19 @@ pub fn ensure_profile() -> Result<String, String> {
     sid_string(&container_sid()?)
 }
 
+/// A console tool run without flashing its own console window.
+fn hidden(program: &str) -> Command {
+    use std::os::windows::process::CommandExt;
+    let mut command = Command::new(program);
+    command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    command
+}
+
 /// Lets the container read (and, with `write`, change) `path` and what is
 /// under it.
 pub fn grant(path: &Path, sid: &str, write: bool) -> Result<(), String> {
     let rights = if write { "(OI)(CI)M" } else { "(OI)(CI)RX" };
-    let output = Command::new("icacls")
+    let output = hidden("icacls")
         .arg(path)
         .args(["/grant", &format!("*{sid}:{rights}"), "/Q"])
         .output()
@@ -96,7 +104,7 @@ pub fn grant(path: &Path, sid: &str, write: bool) -> Result<(), String> {
 
 /// Whether the container may reach `127.0.0.1` (Ollama).
 pub fn loopback_allowed(sid: &str) -> bool {
-    Command::new("CheckNetIsolation.exe")
+    hidden("CheckNetIsolation.exe")
         .args(["LoopbackExempt", "-s"])
         .output()
         .map(|output| crate::listed_in(&String::from_utf8_lossy(&output.stdout), sid))

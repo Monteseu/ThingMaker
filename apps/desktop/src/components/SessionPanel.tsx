@@ -712,7 +712,9 @@ export function SessionPanel({ sessionId }: { sessionId: string }) {
   const mentions = useStore((s) => s.mentions[sessionId] ?? EMPTY_LIST);
   const suggestionContext = useMemo(() => suggestionMessages(session?.projection.cards ?? EMPTY_LIST), [session?.projection.cards, session?.projection.lastSequence]);
   const suggestionEligible = !IS_REMOTE && tab === "transcript" && !!session
-    && session.projection.foreground === "succeeded" && session.projection.attachment === "attached"
+    // Only once the agent is done and waiting on you: no turn of any kind still running.
+    && session.projection.foreground === "succeeded" && session.projection.autonomous.size === 0
+    && session.projection.attachment === "attached"
     && session.projection.process !== "exited" && !session.inFlightRequestId
     && attachments.length === 0 && mentions.length === 0
     // A Local Models session is private: its messages go only to a local model.

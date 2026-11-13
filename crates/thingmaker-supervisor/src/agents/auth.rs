@@ -71,7 +71,7 @@ pub struct ProviderModel {
 /// that hangs on a handshake must not hang the panel that asked it a
 /// question.
 pub fn run_bounded(mut command: Command, timeout: Duration) -> Result<std::process::Output, String> {
-    let mut child = command
+    let mut child = crate::platform::no_window(&mut command)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()

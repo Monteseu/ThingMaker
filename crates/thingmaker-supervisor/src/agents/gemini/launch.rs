@@ -27,6 +27,20 @@ use crate::{acp::launch::SessionId, agents::PermissionStance};
 /// Environment override for the `agy` binary.
 pub const PROGRAM_ENV: &str = "THINGMAKER_AGY";
 
+/// Asks `agy` not to update itself. Left to itself it relaunches in a
+/// terminal of its own, which on Windows is a console window the desktop
+/// cannot hide (it is a window `agy` opens, not a child the desktop spawns).
+/// ThingMaker offers the update as a button instead, the way it does for the
+/// Claude adapter and Codex, so every run but that one holds it back.
+pub const DISABLE_AUTO_UPDATE: &str = "AGY_CLI_DISABLE_AUTO_UPDATE";
+
+/// The environment `agy` is asked questions in: the trusted-local profile
+/// with its self-update held back. `versions::update` deliberately does not
+/// use it, so `agy update` can still do its job.
+pub fn environment() -> crate::security::EnvironmentProfile {
+    crate::security::EnvironmentProfile::trusted_local().with_set(DISABLE_AUTO_UPDATE, "1")
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GeminiLaunchOptions {
     /// Canonical workspace root; the process's working directory.

@@ -6521,6 +6521,24 @@ button.odyssey-task-title svg {
 }
 
 .chart-picker,
+.member-resources {
+  display: grid;
+  gap: 10px;
+  padding-block: 14px;
+  border-block: 1px solid var(--border);
+}
+.member-resources p { margin: 0; }
+.member-resources .row > input { flex: 1; min-width: 140px; }
+.member-resource-list { max-height: 350px; overflow: auto; }
+.skill-connections { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--border-strong); border-radius: 8px; }
+.skill-connection { display: grid; gap: 6px; padding-block: 8px; border-top: 1px solid var(--border); }
+.member-resource-list details { padding: 8px 0; }
+.member-resource-list summary { cursor: pointer; margin-bottom: 8px; }
+.member-resource { display: flex; align-items: flex-start; gap: 10px; padding: 7px 4px; cursor: pointer; }
+.member-resource > span { min-width: 0; overflow-wrap: anywhere; }
+.member-resource > span > span { display: block; margin-top: 3px; }
+.member-resource input { flex: 0 0 auto; margin-top: 3px; accent-color: var(--accent); }
+
 .chart-inspector {
   display: flex;
   flex-direction: column;
@@ -8147,8 +8165,12 @@ html[data-platform="android"] { --traffic-lights: 8px; --titlebar: 52px; height:
   display: contents;
 }
 
-.sidebar-meter-row-model .provider-meter {
-  grid-column: span 2;
+/* A bucket with only a 7d window names itself where its 5h bar would be. */
+.sidebar-meter-group {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sidebar-meter-name {

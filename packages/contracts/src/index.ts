@@ -526,7 +526,14 @@ export type WorkerSlot = {
   note?: string;
   /** The user's own standing instructions for this worker, sent with every new task it gets. */
   prompt?: string;
+  /** Absent inherits; present with empty arrays enables no optional resources. */
+  resources?: MemberResourceSelection;
 };
+
+export type MemberResourceSelection = { skills: string[]; mcps: string[] };
+export type MemberMcpDependency = { name: string; evidence: "declared" | "reference"; required: boolean; mcpIds: string[] };
+export type MemberResourceEntry = { id: string; kind: "skill" | "mcp"; name: string; description: string; group: string; source?: string; target?: string; available: boolean; problem: string | null; mcpDependencies?: MemberMcpDependency[]; dependencyNotes?: string[] };
+export type MemberResourceCatalog = { entries: MemberResourceEntry[]; notes: string[]; problem: string | null };
 
 /** The team behind one orchestrator session. */
 export type Combo = {
@@ -1638,6 +1645,18 @@ export type NotificationSettings = {
   keepAwakeOnBattery: boolean;
 };
 
+/** What renaming a project's folder updated besides the folder itself. */
+export type RenameReport = {
+  workspace: WorkspaceRecord;
+  oldRoot: string;
+  newRoot: string;
+  claudeTranscriptsMoved: number;
+  configEntriesUpdated: number;
+  gitWorktreesRepaired: boolean;
+  /** What could not be updated, in words. */
+  problems: string[];
+};
+
 /** What Wipe All removed from this computer. */
 export type WipeReport = {
   claudeSessions: number;
@@ -1710,6 +1729,19 @@ export type OpenResponse = { handle: SessionHandle; desktopSessionId: string; sn
 /** A locally connected device whose screen can be previewed read-only. */
 export type ScreenDevice = { id: string; name: string; platform: "android" | "ios" };
 export type ScreenStreamEvent = { kind: "frame"; sequence: number; dataUrl: string } | { kind: "error"; message: string };
+/** A tool that live Android video needs. */
+export type ScreenTool = "adb" | "scrcpy" | "ffmpeg";
+/** What to do by hand when the app cannot install the tools itself. */
+export type ScreenToolsManual = { kind: "homebrew"; url: string } | { kind: "winget"; url: string } | { kind: "command"; command: string };
+/** Tools that live Android video needs, and whether the app can install them:
+ * `plan` holds the exact commands an install runs, shown before it does. */
+export type ScreenTools = { missing: ScreenTool[]; canInstall: boolean; manager: "winget" | "homebrew" | null; plan: string[]; manual: ScreenToolsManual | null };
+/** Why an install did not leave every tool in place. */
+export type ScreenToolsProblem =
+  | { kind: "planChanged" | "busy" | "unavailable" | "cancelled" | "stillMissing" }
+  | { kind: "timedOut" | "couldNotStart"; command: string }
+  | { kind: "failed"; command: string; output: string };
+export type ScreenToolsInstall = { tools: ScreenTools; problem: ScreenToolsProblem | null };
 
 /** Command names exposed by the Tauri host. */
 export const COMMANDS = {
@@ -1731,6 +1763,9 @@ export const COMMANDS = {
   sessionSteer: "session_steer",
   sessionEnqueue: "session_enqueue",
   sessionQueue: "session_queue",
+  screenToolsStatus: "screen_tools_status",
+  screenToolsInstall: "screen_tools_install",
+  screenToolsCancel: "screen_tools_cancel",
   keepAwakeStatus: "keep_awake_status",
   providerVersions: "provider_versions",
   providerUpdate: "provider_update",
@@ -1749,6 +1784,7 @@ export const COMMANDS = {
   sessionReporting: "session_reporting",
   sessionSetReporting: "session_set_reporting",
   mcpOverview: "mcp_overview",
+  memberResources: "member_resources_catalog",
   mcpCatalog: "mcp_catalog",
   mcpParse: "mcp_parse",
   mcpInstall: "mcp_install",
@@ -1923,6 +1959,7 @@ export const COMMANDS = {
   localImage: "local_image",
   workspaceRemove: "workspace_remove",
   workspaceWipeSessions: "workspace_wipe_sessions",
+  workspaceRenameFolder: "workspace_rename_folder",
   attachmentPick: "attachment_pick",
   attachmentAddPaths: "attachment_add_paths",
   attachmentAddBytes: "attachment_add_bytes",

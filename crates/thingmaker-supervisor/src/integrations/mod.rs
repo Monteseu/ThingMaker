@@ -2,6 +2,7 @@
 //! provenance and edited with preservation (spec section 14, CTX-01).
 
 pub mod context;
+pub mod member_resources;
 pub mod edit;
 pub mod mcp;
 pub mod skill_import;
