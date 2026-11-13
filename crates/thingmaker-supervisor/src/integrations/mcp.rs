@@ -853,7 +853,7 @@ for line in sys.stdin:
 
     fn which_python() -> Result<String, ()> {
         for candidate in ["python3", "python"] {
-            if Command::new(candidate).arg("--version").output().is_ok_and(|output| output.status.success()) {
+            if crate::platform::no_window(&mut Command::new(candidate)).arg("--version").output().is_ok_and(|output| output.status.success()) {
                 return Ok(candidate.to_string());
             }
         }

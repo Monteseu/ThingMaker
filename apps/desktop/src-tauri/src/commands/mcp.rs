@@ -122,7 +122,7 @@ pub struct InstallOutcome {
 
 async fn run(program: PathBuf, args: Vec<String>, cwd: PathBuf, env: HashMap<String, String>) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let output = std::process::Command::new(&program)
+        let output = thingmaker_supervisor::platform::command(&program)
             .args(&args)
             .current_dir(&cwd)
             .env_clear()
