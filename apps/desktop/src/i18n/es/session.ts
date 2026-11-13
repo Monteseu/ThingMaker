@@ -10,6 +10,7 @@ export const session: Record<string, string> = {
   "Retry": "Reintentar",
   "Live video unavailable. Check that scrcpy and FFmpeg are installed and the device is authorized.": "Vídeo en directo no disponible. Comprueba que scrcpy y FFmpeg estén instalados y que el dispositivo esté autorizado.",
   "Connecting to the screen…": "Conectando con la pantalla…",
+  "Trying again on its own…": "Volviendo a intentarlo automáticamente…",
   "Missing: {tools}": "Falta: {tools}",
   "Install dependencies": "Instalar dependencias",
   "Installing… this can take a few minutes": "Instalando… puede tardar unos minutos",
