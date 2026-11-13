@@ -185,7 +185,12 @@ function SessionRow({
         className={`session-row ${row.liveId ? "" : "stored"} ${active ? "selected" : ""}`}
         disabled={!row.liveId && !row.trusted}
         onClick={open}
-        title={row.liveId ? `${row.id}${shortcut}` : row.trusted ? t("Resume {id}", { id: row.id ?? "" }) : t("Trust the workspace to resume")}
+        // The row's room goes to the title; when it was last active shows on hover.
+        title={[
+          row.label,
+          row.running ? t("Running") : row.exited ? t("Exited") : t("Last activity: {when}", { when: relative(row.updated) }),
+          row.liveId ? `${row.id}${shortcut}` : row.trusted ? t("Resume {id}", { id: row.id ?? "" }) : t("Trust the workspace to resume"),
+        ].join("\n")}
         type="button"
       >
         {/* The provider leads the row; an open session's state sits on its corner. */}
@@ -197,7 +202,6 @@ function SessionRow({
           <span className="sidebar-title">{row.label}</span>
           {showProject && <span className="session-project">{row.project}</span>}
         </span>
-        <span className="row-meta">{row.running ? t("running") : row.exited ? t("exited") : relative(row.updated)}</span>
       </button>
       <span className="row-actions">
         <button

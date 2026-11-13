@@ -433,4 +433,6 @@ export const shell: Record<string, string> = {
   "Some things could not be removed:": "Algunas cosas no se pudieron borrar:",
   "Projects": "Proyectos",
   "Add a project (⌘O)": "Añadir un proyecto (⌘O)",
+  "Exited": "Terminada",
+  "Last activity: {when}": "Última actividad: {when}",
 };
