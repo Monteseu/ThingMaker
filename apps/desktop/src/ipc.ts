@@ -190,6 +190,8 @@ export const api = {
   screenStreamAck: (id: string, sequence: number) => call<void>(COMMANDS.screenStreamAck, { id, sequence }),
   screenStreamHeartbeat: (id: string) => call<void>(COMMANDS.screenStreamHeartbeat, { id }),
   executionProfiles: () => call<ProfileInfo[]>(COMMANDS.executionProfiles),
+  screenToolsStatus: () => call<import("@thingmaker/contracts").ScreenTools>(COMMANDS.screenToolsStatus),
+  screenToolsInstall: () => call<import("@thingmaker/contracts").ScreenTools>(COMMANDS.screenToolsInstall),
   workspaceInspect: (path: string) => call<WorkspaceInspection>(COMMANDS.workspaceInspect, { path }),
   workspaceTrust: (workspaceId: string, state: TrustState, trustDigest: string) =>
     call<WorkspaceInspection>(COMMANDS.workspaceTrust, { request: { workspaceId, state, trustDigest } }),

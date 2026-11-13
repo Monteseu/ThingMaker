@@ -1729,6 +1729,8 @@ export type OpenResponse = { handle: SessionHandle; desktopSessionId: string; sn
 /** A locally connected device whose screen can be previewed read-only. */
 export type ScreenDevice = { id: string; name: string; platform: "android" | "ios" };
 export type ScreenStreamEvent = { kind: "frame"; sequence: number; dataUrl: string } | { kind: "error"; message: string };
+/** Tools that live Android video needs, and whether the app can install them. */
+export type ScreenTools = { missing: string[]; canInstall: boolean; manual: string | null };
 
 /** Command names exposed by the Tauri host. */
 export const COMMANDS = {
@@ -1750,6 +1752,8 @@ export const COMMANDS = {
   sessionSteer: "session_steer",
   sessionEnqueue: "session_enqueue",
   sessionQueue: "session_queue",
+  screenToolsStatus: "screen_tools_status",
+  screenToolsInstall: "screen_tools_install",
   keepAwakeStatus: "keep_awake_status",
   providerVersions: "provider_versions",
   providerUpdate: "provider_update",

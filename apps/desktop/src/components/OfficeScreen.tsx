@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { ScreenDevice } from "@thingmaker/contracts";
+import type { ScreenDevice, ScreenTools } from "@thingmaker/contracts";
 import { api } from "../ipc";
 import { t } from "../i18n";
 
@@ -44,12 +44,67 @@ function DeviceSnapshots({ device }: { device: ScreenDevice }) {
   );
 }
 
+/** Lists the missing tools for live video and installs them in one click. */
+function ScreenToolsSetup({ onInstalled, onMissing }: { onInstalled: () => void; onMissing?: (missing: boolean) => void }) {
+  const [tools, setTools] = useState<ScreenTools | null>(null);
+  const [installing, setInstalling] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    // Keep checking while something is missing: it may get installed from
+    // another window or a terminal, and the caller should then retry.
+    let live = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const check = () => {
+      api.screenToolsStatus().then((next) => {
+        if (!live) return;
+        setTools(next);
+        onMissing?.(next.missing.length > 0);
+        if (next.missing.length > 0) timer = setTimeout(check, 10000);
+      }).catch(() => {});
+    };
+    check();
+    return () => { live = false; clearTimeout(timer); };
+  }, []);
+  if (!tools || tools.missing.length === 0) return null;
+  const install = async () => {
+    setInstalling(true);
+    setError(null);
+    try {
+      setTools(await api.screenToolsInstall());
+      onMissing?.(false);
+      onInstalled();
+    } catch (reason) {
+      setError(String((reason as { message?: string })?.message ?? reason));
+    } finally {
+      setInstalling(false);
+    }
+  };
+  return <div className="office-screen-tools">
+    <p className="small">{t("Missing: {tools}", { tools: tools.missing.join(", ") })}</p>
+    {tools.canInstall
+      ? <button className="button small" disabled={installing} onClick={() => void install()} type="button">{installing ? t("Installing… this can take a few minutes") : t("Install dependencies")}</button>
+      : tools.manual && <p className="small muted">{t("Install them yourself: {command}", { command: tools.manual })}</p>}
+    {error && <p className="small error">{error}</p>}
+  </div>;
+}
+
+/** Delay before reconnecting on its own after a failure: 3 s, doubling to 30 s. */
+export function retryDelay(failures: number): number {
+  return Math.min(3000 * 2 ** Math.max(0, failures - 1), 30000);
+}
+
 /** Continuous scrcpy video: the native side sends a new frame only after
- * the preceding image has loaded, keeping slow views from building a delay. */
+ * the preceding image has loaded, keeping slow views from building a delay.
+ * A failed stream reconnects on its own (a phone being plugged in or a tool
+ * that just finished installing), except while tools are known missing. */
 function LiveVideo({ device, visible }: { device: ScreenDevice; visible: boolean }) {
   const [frame, setFrame] = useState<{ dataUrl: string; sequence: number } | null>(null);
   const [failed, setFailed] = useState(false);
+  const [reason, setReason] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [check, setCheck] = useState(0);
+  const [toolsMissing, setToolsMissing] = useState(false);
+  const failures = useRef(0);
   const stream = useRef<string | null>(null);
   const loaded = useRef<number | null>(null);
   const displayed = useRef<string | null>(null);
@@ -85,12 +140,16 @@ function LiveVideo({ device, visible }: { device: ScreenDevice; visible: boolean
     void api.screenStreamStart(device, (event) => {
       if (stopped) return;
       if (event.kind === "frame") {
+        failures.current = 0;
         setFrame(event);
         setFailed(false);
+        setReason(null);
       } else {
         stopped = true;
+        failures.current += 1;
         setFrame(null);
         setFailed(true);
+        setReason(event.message || null);
         stop();
       }
     }).then((opened) => {
@@ -103,21 +162,40 @@ function LiveVideo({ device, visible }: { device: ScreenDevice; visible: boolean
         loaded.current = null;
       }
       heartbeat = setInterval(() => { void api.screenStreamHeartbeat(opened).catch(() => {}); }, 5000);
-    }).catch(() => {
-      if (!stopped) { setFrame(null); setFailed(true); }
+    }).catch((error: unknown) => {
+      if (stopped) return;
+      failures.current += 1;
+      setFrame(null);
+      setFailed(true);
+      setReason((error as { message?: string })?.message || null);
     });
     return () => { stopped = true; stop(); };
   }, [device.id, device.platform, visible, attempt]);
+  useEffect(() => {
+    // Retrying cannot help while tools are missing; installing them retries.
+    if (!failed || !visible || toolsMissing) return;
+    const timer = setTimeout(() => setAttempt((value) => value + 1), retryDelay(failures.current));
+    return () => clearTimeout(timer);
+  }, [failed, visible, toolsMissing, attempt]);
+  const retry = () => {
+    failures.current = 0;
+    setCheck((value) => value + 1);
+    setAttempt((value) => value + 1);
+  };
   return <>
     {frame && <img alt={t("Screen of {name}", { name: device.name })} onLoad={() => {
       displayed.current = frame.dataUrl;
       acknowledge(frame.sequence);
     }} onError={() => {
-      setFrame(null); setFailed(true);
+      failures.current += 1;
+      setFrame(null); setFailed(true); setReason(null);
       terminate.current();
     }} src={frame.dataUrl} />}
     {!frame && <p role="status">{failed ? t("Live video unavailable. Check that scrcpy and FFmpeg are installed and the device is authorized.") : t("Connecting to the screen…")}</p>}
-    {failed && <button className="button small" onClick={() => setAttempt((value) => value + 1)} type="button">{t("Retry")}</button>}
+    {failed && reason && <p className="small muted">{reason}</p>}
+    {failed && !toolsMissing && <span className="small muted">{t("Trying again on its own…")}</span>}
+    {failed && <button className="button small" onClick={retry} type="button">{t("Retry")}</button>}
+    {failed && <ScreenToolsSetup key={check} onInstalled={retry} onMissing={setToolsMissing} />}
     {frame && <span className="small muted">{t("Live · up to 30 fps · view only")}</span>}
   </>;
 }
@@ -149,6 +227,7 @@ export function OfficeScreen({ children }: { children: ReactNode }) {
   const [selected, setSelected] = useState("");
   const [unavailable, setUnavailable] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [rescan, setRescan] = useState(0);
   useEffect(() => {
     let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
@@ -171,7 +250,7 @@ export function OfficeScreen({ children }: { children: ReactNode }) {
     };
     void discover();
     return () => { stopped = true; clearTimeout(timer); };
-  }, []);
+  }, [rescan]);
   const current = devices.find((device) => deviceKey(device) === selected) ?? devices[0];
   return (
     <div className="office-stage">
@@ -188,6 +267,7 @@ export function OfficeScreen({ children }: { children: ReactNode }) {
             </select>
             <DeviceScreen device={current} key={deviceKey(current)} />
           </> : <p className="small muted" role="status">{loading ? t("Looking for devices…") : unavailable ? t("Device preview unavailable. Use the desktop app with Android platform tools or Xcode simulators installed.") : t("No devices found. Connect an Android phone with USB debugging enabled, or start an Android emulator or iOS simulator.")}</p>}
+          {!current && !loading && <ScreenToolsSetup key={rescan} onInstalled={() => setRescan((value) => value + 1)} />}
         </div>
       )}
     </div>

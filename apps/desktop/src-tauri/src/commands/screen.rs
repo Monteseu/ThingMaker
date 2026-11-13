@@ -36,6 +36,13 @@ pub(super) fn adb() -> PathBuf {
             PathBuf::from("/usr/local/bin/adb"),
         ])
         .find(|path| path.is_file())
+        .or_else(|| super::screen_tools::find("adb"))
+        // scrcpy's Windows release bundles adb beside it.
+        .or_else(|| {
+            super::screen_tools::scrcpy_dir()
+                .map(|dir| dir.join(executable))
+                .filter(|path| path.is_file())
+        })
         .unwrap_or_else(|| PathBuf::from(executable))
 }
 
