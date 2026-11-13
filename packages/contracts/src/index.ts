@@ -1729,8 +1729,19 @@ export type OpenResponse = { handle: SessionHandle; desktopSessionId: string; sn
 /** A locally connected device whose screen can be previewed read-only. */
 export type ScreenDevice = { id: string; name: string; platform: "android" | "ios" };
 export type ScreenStreamEvent = { kind: "frame"; sequence: number; dataUrl: string } | { kind: "error"; message: string };
-/** Tools that live Android video needs, and whether the app can install them. */
-export type ScreenTools = { missing: string[]; canInstall: boolean; manual: string | null };
+/** A tool that live Android video needs. */
+export type ScreenTool = "adb" | "scrcpy" | "ffmpeg";
+/** What to do by hand when the app cannot install the tools itself. */
+export type ScreenToolsManual = { kind: "homebrew"; url: string } | { kind: "winget"; url: string } | { kind: "command"; command: string };
+/** Tools that live Android video needs, and whether the app can install them:
+ * `plan` holds the exact commands an install runs, shown before it does. */
+export type ScreenTools = { missing: ScreenTool[]; canInstall: boolean; manager: "winget" | "homebrew" | null; plan: string[]; manual: ScreenToolsManual | null };
+/** Why an install did not leave every tool in place. */
+export type ScreenToolsProblem =
+  | { kind: "planChanged" | "busy" | "unavailable" | "cancelled" | "stillMissing" }
+  | { kind: "timedOut" | "couldNotStart"; command: string }
+  | { kind: "failed"; command: string; output: string };
+export type ScreenToolsInstall = { tools: ScreenTools; problem: ScreenToolsProblem | null };
 
 /** Command names exposed by the Tauri host. */
 export const COMMANDS = {
@@ -1754,6 +1765,7 @@ export const COMMANDS = {
   sessionQueue: "session_queue",
   screenToolsStatus: "screen_tools_status",
   screenToolsInstall: "screen_tools_install",
+  screenToolsCancel: "screen_tools_cancel",
   keepAwakeStatus: "keep_awake_status",
   providerVersions: "provider_versions",
   providerUpdate: "provider_update",

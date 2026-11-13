@@ -191,7 +191,8 @@ export const api = {
   screenStreamHeartbeat: (id: string) => call<void>(COMMANDS.screenStreamHeartbeat, { id }),
   executionProfiles: () => call<ProfileInfo[]>(COMMANDS.executionProfiles),
   screenToolsStatus: () => call<import("@thingmaker/contracts").ScreenTools>(COMMANDS.screenToolsStatus),
-  screenToolsInstall: () => call<import("@thingmaker/contracts").ScreenTools>(COMMANDS.screenToolsInstall),
+  screenToolsInstall: (plan: string[]) => call<import("@thingmaker/contracts").ScreenToolsInstall>(COMMANDS.screenToolsInstall, { plan }),
+  screenToolsCancel: () => call<void>(COMMANDS.screenToolsCancel),
   workspaceInspect: (path: string) => call<WorkspaceInspection>(COMMANDS.workspaceInspect, { path }),
   workspaceTrust: (workspaceId: string, state: TrustState, trustDigest: string) =>
     call<WorkspaceInspection>(COMMANDS.workspaceTrust, { request: { workspaceId, state, trustDigest } }),

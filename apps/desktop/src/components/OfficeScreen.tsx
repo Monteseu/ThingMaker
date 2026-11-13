@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { ScreenDevice, ScreenTools } from "@thingmaker/contracts";
+import type { ScreenDevice, ScreenTool, ScreenTools, ScreenToolsInstall, ScreenToolsManual, ScreenToolsProblem } from "@thingmaker/contracts";
 import { api } from "../ipc";
 import { t } from "../i18n";
 
@@ -44,11 +44,68 @@ function DeviceSnapshots({ device }: { device: ScreenDevice }) {
   );
 }
 
-/** Lists the missing tools for live video and installs them in one click. */
+function toolName(tool: ScreenTool): string {
+  return tool === "adb" ? t("Android platform tools (adb)") : tool === "scrcpy" ? "scrcpy" : "FFmpeg";
+}
+
+function manualText(manual: ScreenToolsManual): string {
+  switch (manual.kind) {
+    case "homebrew": return t("Install Homebrew from {url}, then try again.", { url: manual.url });
+    case "winget": return t("Install App Installer from the Microsoft Store ({url}) to get winget, then try again.", { url: manual.url });
+    case "command": return t("Install them yourself: {command}", { command: manual.command });
+  }
+}
+
+function problemText(problem: ScreenToolsProblem | null, tools: ScreenTools): string {
+  switch (problem?.kind) {
+    case "planChanged": return t("What needs installing has changed. Check the commands and confirm again.");
+    case "busy": return t("The device tools are already installing.");
+    case "unavailable": return t("The package manager is no longer available.");
+    case "cancelled": return t("Install cancelled.");
+    case "timedOut": return t("{command} timed out.", { command: problem.command });
+    case "couldNotStart": return t("{command} could not start.", { command: problem.command });
+    case "failed": return t("{command} failed: {output}", { command: problem.command, output: problem.output });
+    default: return t("Installed, but {tools} cannot be found yet. Restart ThingMaker and try again.", { tools: tools.missing.map(toolName).join(", ") });
+  }
+}
+
+/** The install in progress, shared by every view: one that remounts (Retry,
+ * another device, back from the crew) follows it instead of offering a
+ * second install that the host would refuse. */
+let running: Promise<ScreenToolsInstall> | null = null;
+
+/** Lists the missing tools for live video and, once the person confirms
+ * the exact commands, installs them. */
 function ScreenToolsSetup({ onInstalled, onMissing }: { onInstalled: () => void; onMissing?: (missing: boolean) => void }) {
   const [tools, setTools] = useState<ScreenTools | null>(null);
-  const [installing, setInstalling] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [installing, setInstalling] = useState(running !== null);
   const [error, setError] = useState<string | null>(null);
+  const mounted = useRef(true);
+  const follow = async (install: Promise<ScreenToolsInstall>) => {
+    setInstalling(true);
+    setError(null);
+    try {
+      const outcome = await install;
+      if (!mounted.current) return;
+      setTools(outcome.tools);
+      if (outcome.tools.missing.length === 0) {
+        onMissing?.(false);
+        onInstalled();
+      } else {
+        setError(problemText(outcome.problem, outcome.tools));
+      }
+    } catch (reason) {
+      if (mounted.current) setError(String((reason as { message?: string })?.message ?? reason));
+    } finally {
+      if (mounted.current) setInstalling(false);
+    }
+  };
+  useEffect(() => {
+    mounted.current = true;
+    if (running) void follow(running);
+    return () => { mounted.current = false; };
+  }, []);
   useEffect(() => {
     // Keep checking while something is missing: it may get installed from
     // another window or a terminal, and the caller should then retry.
@@ -66,24 +123,27 @@ function ScreenToolsSetup({ onInstalled, onMissing }: { onInstalled: () => void;
     return () => { live = false; clearTimeout(timer); };
   }, []);
   if (!tools || tools.missing.length === 0) return null;
-  const install = async () => {
-    setInstalling(true);
-    setError(null);
-    try {
-      setTools(await api.screenToolsInstall());
-      onMissing?.(false);
-      onInstalled();
-    } catch (reason) {
-      setError(String((reason as { message?: string })?.message ?? reason));
-    } finally {
-      setInstalling(false);
-    }
+  const install = () => {
+    setConfirming(false);
+    running ??= api.screenToolsInstall(tools.plan).finally(() => { running = null; });
+    void follow(running);
   };
   return <div className="office-screen-tools">
-    <p className="small">{t("Missing: {tools}", { tools: tools.missing.join(", ") })}</p>
-    {tools.canInstall
-      ? <button className="button small" disabled={installing} onClick={() => void install()} type="button">{installing ? t("Installing… this can take a few minutes") : t("Install dependencies")}</button>
-      : tools.manual && <p className="small muted">{t("Install them yourself: {command}", { command: tools.manual })}</p>}
+    <p className="small">{t("Missing: {tools}", { tools: tools.missing.map(toolName).join(", ") })}</p>
+    {installing ? <>
+      <p className="small" role="status">{t("Installing… this can take a few minutes")}</p>
+      <button className="button small" onClick={() => void api.screenToolsCancel().catch(() => {})} type="button">{t("Cancel")}</button>
+    </> : confirming ? <>
+      <p className="small">{t("ThingMaker will run:")}</p>
+      <ul className="office-screen-tools-plan">{tools.plan.map((command) => <li key={command}><code>{command}</code></li>)}</ul>
+      {tools.manager === "winget" && <p className="small muted">{t("winget accepts the packages' licence agreements on your behalf.")}</p>}
+      <div className="office-screen-tools-actions">
+        <button className="button small" onClick={install} type="button">{t("Install")}</button>
+        <button className="button small" onClick={() => setConfirming(false)} type="button">{t("Cancel")}</button>
+      </div>
+    </> : tools.canInstall
+      ? <button className="button small" onClick={() => { setError(null); setConfirming(true); }} type="button">{t("Install dependencies")}</button>
+      : tools.manual && <p className="small muted">{manualText(tools.manual)}</p>}
     {error && <p className="small error">{error}</p>}
   </div>;
 }

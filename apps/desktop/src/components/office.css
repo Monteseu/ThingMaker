@@ -12,6 +12,9 @@
 .office-device-screen p { font-size: 12px; text-align: center; }
 .office-screen-tools { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
 .office-screen-tools .error { color: var(--danger, #e5484d); }
+.office-screen-tools-plan { margin: 0; padding: 0; list-style: none; max-width: 100%; font-size: 11px; text-align: left; }
+.office-screen-tools-plan code { overflow-wrap: anywhere; }
+.office-screen-tools-actions { display: flex; gap: 6px; }
 
 .office-pane {
   position: relative;
