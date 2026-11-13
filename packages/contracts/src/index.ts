@@ -1721,6 +1721,8 @@ export const COMMANDS = {
   screenStreamHeartbeat: "screen_stream_heartbeat",
   executionProfiles: "execution_profiles",
   workspaceInspect: "workspace_inspect",
+/** Tools that live Android video needs, and whether the app can install them. */
+export type ScreenTools = { missing: string[]; canInstall: boolean; manual: string | null };
   workspaceTrust: "workspace_trust",
   workspaceList: "workspace_list",
   sessionOpen: "session_open",
@@ -1731,6 +1733,8 @@ export const COMMANDS = {
   sessionSteer: "session_steer",
   sessionEnqueue: "session_enqueue",
   sessionQueue: "session_queue",
+  screenToolsStatus: "screen_tools_status",
+  screenToolsInstall: "screen_tools_install",
   keepAwakeStatus: "keep_awake_status",
   providerVersions: "provider_versions",
   providerUpdate: "provider_update",

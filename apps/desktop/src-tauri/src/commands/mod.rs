@@ -6,6 +6,7 @@
 pub mod app;
 pub mod screen;
 pub mod screen_stream;
+pub mod screen_tools;
 pub mod suggestions;
 pub mod artifacts;
 pub mod attachments;

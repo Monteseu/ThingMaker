@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { ScreenDevice } from "@thingmaker/contracts";
+import type { ScreenDevice, ScreenTools } from "@thingmaker/contracts";
 import { api } from "../ipc";
 import { t } from "../i18n";
 
@@ -42,6 +42,38 @@ function DeviceSnapshots({ device }: { device: ScreenDevice }) {
       <span className="small muted">{t("View only · refreshes every second")}</span>
     </div>
   );
+}
+
+/** Lists the missing tools for live video and installs them in one click. */
+function ScreenToolsSetup({ onInstalled }: { onInstalled: () => void }) {
+  const [tools, setTools] = useState<ScreenTools | null>(null);
+  const [installing, setInstalling] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.screenToolsStatus().then((next) => { if (live) setTools(next); }).catch(() => {});
+    return () => { live = false; };
+  }, []);
+  if (!tools || tools.missing.length === 0) return null;
+  const install = async () => {
+    setInstalling(true);
+    setError(null);
+    try {
+      setTools(await api.screenToolsInstall());
+      onInstalled();
+    } catch (reason) {
+      setError(String((reason as { message?: string })?.message ?? reason));
+    } finally {
+      setInstalling(false);
+    }
+  };
+  return <div className="office-screen-tools">
+    <p className="small">{t("Missing: {tools}", { tools: tools.missing.join(", ") })}</p>
+    {tools.canInstall
+      ? <button className="button small" disabled={installing} onClick={() => void install()} type="button">{installing ? t("Installing… this can take a few minutes") : t("Install dependencies")}</button>
+      : tools.manual && <p className="small muted">{t("Install them yourself: {command}", { command: tools.manual })}</p>}
+    {error && <p className="small error">{error}</p>}
+  </div>;
 }
 
 /** Continuous scrcpy video: the native side sends a new frame only after
@@ -118,6 +150,7 @@ function LiveVideo({ device, visible }: { device: ScreenDevice; visible: boolean
     }} src={frame.dataUrl} />}
     {!frame && <p role="status">{failed ? t("Live video unavailable. Check that scrcpy and FFmpeg are installed and the device is authorized.") : t("Connecting to the screen…")}</p>}
     {failed && <button className="button small" onClick={() => setAttempt((value) => value + 1)} type="button">{t("Retry")}</button>}
+    {failed && <ScreenToolsSetup key={attempt} onInstalled={() => setAttempt((value) => value + 1)} />}
     {frame && <span className="small muted">{t("Live · up to 30 fps · view only")}</span>}
   </>;
 }
@@ -149,6 +182,7 @@ export function OfficeScreen({ children }: { children: ReactNode }) {
   const [selected, setSelected] = useState("");
   const [unavailable, setUnavailable] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [rescan, setRescan] = useState(0);
   useEffect(() => {
     let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
@@ -171,7 +205,7 @@ export function OfficeScreen({ children }: { children: ReactNode }) {
     };
     void discover();
     return () => { stopped = true; clearTimeout(timer); };
-  }, []);
+  }, [rescan]);
   const current = devices.find((device) => deviceKey(device) === selected) ?? devices[0];
   return (
     <div className="office-stage">
@@ -188,6 +222,7 @@ export function OfficeScreen({ children }: { children: ReactNode }) {
             </select>
             <DeviceScreen device={current} key={deviceKey(current)} />
           </> : <p className="small muted" role="status">{loading ? t("Looking for devices…") : unavailable ? t("Device preview unavailable. Use the desktop app with Android platform tools or Xcode simulators installed.") : t("No devices found. Connect an Android phone with USB debugging enabled, or start an Android emulator or iOS simulator.")}</p>}
+          {!current && !loading && <ScreenToolsSetup key={rescan} onInstalled={() => setRescan((value) => value + 1)} />}
         </div>
       )}
     </div>

@@ -63,24 +63,14 @@ pub struct ScreenStreams {
     active: Arc<Mutex<HashMap<String, Arc<Control>>>>,
 }
 
-/// Find tools even when launched from Finder rather than a login shell.
 fn tool(name: &str) -> PathBuf {
-    let file = if cfg!(windows) {
-        format!("{name}.exe")
-    } else {
-        name.into()
-    };
-    std::env::var_os("PATH")
-        .map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
-        .unwrap_or_default()
-        .into_iter()
-        .chain([
-            PathBuf::from("/opt/homebrew/bin"),
-            PathBuf::from("/usr/local/bin"),
-        ])
-        .map(|dir| dir.join(&file))
-        .find(|path| path.is_file())
-        .unwrap_or_else(|| file.into())
+    super::screen_tools::find(name).unwrap_or_else(|| {
+        if cfg!(windows) {
+            format!("{name}.exe").into()
+        } else {
+            name.into()
+        }
+    })
 }
 
 fn spawn(command: &mut Command) -> CommandResult<Child> {
@@ -134,12 +124,16 @@ impl AndroidVideo {
             ));
         }
         let parent = scrcpy.parent().unwrap_or(std::path::Path::new("."));
+        // winget and Homebrew install a link; the jar sits beside the real file.
+        let real = super::screen_tools::scrcpy_dir().unwrap_or_else(|| parent.to_path_buf());
         let jar = std::env::var_os("SCRCPY_SERVER_PATH")
             .map(PathBuf::from)
             .into_iter()
             .chain([
                 parent.join("scrcpy-server"),
                 parent.join("../share/scrcpy/scrcpy-server"),
+                real.join("scrcpy-server"),
+                real.join("../share/scrcpy/scrcpy-server"),
                 PathBuf::from("/usr/share/scrcpy/scrcpy-server"),
             ])
             .find(|path| path.is_file())

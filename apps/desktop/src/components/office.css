@@ -10,6 +10,8 @@
 .office-device-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 260px; }
 .office-device-screen img { display: block; width: 100%; max-height: 65vh; object-fit: contain; border-radius: 8px; background: #111; }
 .office-device-screen p { font-size: 12px; text-align: center; }
+.office-screen-tools { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
+.office-screen-tools .error { color: var(--danger, #e5484d); }
 
 .office-pane {
   position: relative;

@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScreenDevice, ScreenStreamEvent } from "@thingmaker/contracts";
 
-vi.mock("./ipc", () => ({ api: { screenDevices: vi.fn(), screenCapture: vi.fn(), screenStreamStart: vi.fn(), screenStreamStop: vi.fn(), screenStreamAck: vi.fn(), screenStreamHeartbeat: vi.fn() } }));
+vi.mock("./ipc", () => ({ api: { screenDevices: vi.fn(), screenCapture: vi.fn(), screenStreamStart: vi.fn(), screenStreamStop: vi.fn(), screenStreamAck: vi.fn(), screenStreamHeartbeat: vi.fn(), screenToolsStatus: vi.fn(), screenToolsInstall: vi.fn() } }));
 import { api } from "./ipc";
 import { OfficeScreen } from "./components/OfficeScreen";
 
@@ -14,6 +14,8 @@ const start = vi.mocked(api.screenStreamStart);
 const stop = vi.mocked(api.screenStreamStop);
 const ack = vi.mocked(api.screenStreamAck);
 const heartbeat = vi.mocked(api.screenStreamHeartbeat);
+const toolsStatus = vi.mocked(api.screenToolsStatus);
+const toolsInstall = vi.mocked(api.screenToolsInstall);
 let onVideo: (event: ScreenStreamEvent) => void;
 const frame = "data:image/jpeg;base64,aGVsbG8=";
 async function mount() {
@@ -28,6 +30,7 @@ beforeEach(() => {
   capture.mockResolvedValue(frame);
   start.mockImplementation(async (_device, onEvent) => { onVideo = onEvent; return "stream-1"; });
   stop.mockResolvedValue(); ack.mockResolvedValue(); heartbeat.mockResolvedValue();
+  toolsStatus.mockResolvedValue({ missing: [], canInstall: false, manual: null });
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
@@ -177,5 +180,20 @@ describe("office device screens", () => {
     expect(screen.queryByRole("img")).toBeNull();
     await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
     expect(heartbeat).not.toHaveBeenCalled();
+  });
+  it("offers to install missing video tools and retries once they are in", async () => {
+    toolsStatus.mockResolvedValue({ missing: ["scrcpy", "FFmpeg"], canInstall: true, manual: null });
+    toolsInstall.mockResolvedValue({ missing: [], canInstall: false, manual: null });
+    await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Screen (2)" }));
+    await act(async () => {});
+    act(() => onVideo({ kind: "error", message: "missing" }));
+    await act(async () => {});
+    expect(screen.getByText("Missing: scrcpy, FFmpeg")).toBeTruthy();
+    const starts = start.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Install dependencies" }));
+    await act(async () => {});
+    expect(toolsInstall).toHaveBeenCalledTimes(1);
+    expect(start.mock.calls.length).toBe(starts + 1);
   });
 });
