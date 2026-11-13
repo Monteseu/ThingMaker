@@ -8147,8 +8147,12 @@ html[data-platform="android"] { --traffic-lights: 8px; --titlebar: 52px; height:
   display: contents;
 }
 
-.sidebar-meter-row-model .provider-meter {
-  grid-column: span 2;
+/* A bucket with only a 7d window names itself where its 5h bar would be. */
+.sidebar-meter-group {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sidebar-meter-name {

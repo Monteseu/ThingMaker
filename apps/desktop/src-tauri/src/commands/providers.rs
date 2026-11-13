@@ -281,7 +281,7 @@ pub async fn provider_quota(provider: Provider, state: State<'_, AppState>) -> C
                 .map_err(|error| DesktopError::io(error.to_string()))??
         }
         Provider::Gemini => {
-            tauri::async_runtime::spawn_blocking(move || gemini::quota::read_quota(&resolved.program, &home, Duration::from_secs(30)).map_err(DesktopError::io))
+            tauri::async_runtime::spawn_blocking(move || gemini::quota::read_quota(&resolved.program, Duration::from_secs(30)).map_err(DesktopError::io))
                 .await
                 .map_err(|error| DesktopError::io(error.to_string()))??
         }
