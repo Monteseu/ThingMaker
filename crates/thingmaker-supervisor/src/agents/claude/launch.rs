@@ -111,6 +111,9 @@ pub struct ClaudeLaunchOptions {
     /// The account's settings folder (`CLAUDE_CONFIG_DIR`) when it is not
     /// the person's own; see `agents::accounts`.
     pub config_dir: Option<PathBuf>,
+    /// Resolved per-worker catalog; MCP credentials never cross the renderer.
+    pub resources: Option<(Vec<String>, std::collections::BTreeMap<String, serde_json::Value>)>,
+    pub resource_plugins: Vec<PathBuf>,
 }
 
 impl ClaudeLaunchOptions {
@@ -129,6 +132,8 @@ impl ClaudeLaunchOptions {
             append_system_prompt: None,
             local: None,
             config_dir: None,
+            resources: None,
+            resource_plugins: Vec::new(),
         }
     }
 
@@ -156,6 +161,19 @@ impl ClaudeLaunchOptions {
             }
         }
         let mut claude_options = serde_json::Map::new();
+        if !self.resource_plugins.is_empty() {
+            claude_options.insert("plugins".into(), serde_json::json!(self.resource_plugins.iter().map(|path| serde_json::json!({"type":"local","path":path})).collect::<Vec<_>>()));
+        }
+        if let Some((skills, mcps)) = &self.resources {
+            claude_options.insert("skills".into(), serde_json::json!(skills));
+            claude_options.insert("strictMcpConfig".into(), serde_json::json!(true));
+            claude_options.insert("mcpServers".into(), serde_json::json!(mcps));
+            // SDK skills scope the main agent only. Prevent native subagents
+            // from bypassing the selected worker's resource policy.
+            for tool in ["Agent", "Task"] {
+                if !disallowed.iter().any(|value| value == tool) { disallowed.push(tool.into()); }
+            }
+        }
         if !disallowed.is_empty() {
             claude_options.insert("disallowedTools".into(), serde_json::json!(disallowed));
         }
@@ -328,6 +346,18 @@ mod tests {
         );
         options.append_system_prompt = Some("You lead a team.".into());
         assert_eq!(options.session_meta().unwrap()["systemPrompt"], serde_json::json!({"append": "You lead a team."}));
+    }
+
+    #[test]
+    fn a_custom_worker_has_an_explicit_skill_and_mcp_allowlist_even_when_empty() {
+        let mut options = ClaudeLaunchOptions::new("/work", "/usr/bin/node", vec!["adapter.js".into()]);
+        options.resources = Some((vec![], Default::default()));
+        let meta = options.session_meta().unwrap();
+        let sdk = &meta["claudeCode"]["options"];
+        assert_eq!(sdk["skills"], serde_json::json!([]));
+        assert_eq!(sdk["mcpServers"], serde_json::json!({}));
+        assert_eq!(sdk["strictMcpConfig"], true);
+        assert_eq!(sdk["disallowedTools"], serde_json::json!(["Agent", "Task"]));
     }
 
     fn install(prefix: &Path) -> PathBuf {

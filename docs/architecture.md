@@ -87,6 +87,78 @@ Kit is removed; Claude Code and Codex run end to end and either can orchestrate 
     view.
   - Routing goes by worker name, then capability, then quota headroom. A
     worker refused for its limit before doing any work hands its job on.
+  - **Shared member resources (local pilot):** the member inspector
+    offers inherited configuration or an explicit selection of skills and
+    MCP servers, grouped by plugin, user and project. References are saved
+    with teams and helper presets; the actual account and job workspace
+    resolve them at launch. Missing/disabled references prevent launch.
+    The host passes `skills`, `strictMcpConfig` and resolved `mcpServers`
+    through ACP SDK options, preserving ThingMaker's internal team server.
+    Skills in user/project `.agents/skills`, `.codex/skills` and user
+    `.codex/skills/.system` are included alongside native `.claude` skills
+    and installed Claude plugin skills. Each entry shows its source. Claude
+    imports only selected external skill directories through temporary,
+    skill-only local plugins with unique namespaces. Symlinks preserve
+    supporting files; the actor owns the temporary directories until exit.
+    Native subagents are disabled on customized workers because the SDK's
+    skill allowlist scopes the main agent. Manual-only/forked skills are
+    unavailable in this pilot. Codex workers use the same selection and a
+    separate app-server process per worker: extra discovery roots and
+    per-thread `skills.config` overrides enable selected canonical paths.
+    A frozen selected catalog replaces automatic skill instructions so
+    installing another skill cannot expand an existing member's listing.
+    The per-thread `mcp_servers` root override contains only selected
+    servers and ThingMaker's internal team server. Apps and inherited
+    plugins are disabled in that worker. No skills/config/write or global
+    config edit is used. Empty MCP confirmation forms on selected servers
+    use the workspace's existing approval gate; data-entry forms are refused.
+    Gemini and Local Models retain inherited resources.
+    Account, policy, selected skill text and resolved MCP configuration
+    changes prevent reuse of an old worker conversation; stale follow-ups
+    ask for a new job. Running jobs keep their starting configuration.
+  - Selecting a skill reveals its MCP dependencies in the same inspector.
+    The detector reads `dependencies.tools` (`type: mcp`) from `SKILL.json`,
+    `agents/openai.yaml`/`.yml` and SKILL.md frontmatter, plus the explicit
+    `mcp-servers: [server-name]` frontmatter convention. These declarations
+    are required unless the tool entry sets `optional: true`. Concrete
+    `mcp__server__tool` references, MCP-named prose, resource URI schemes
+    and known server function calls in SKILL.md produce suggestions only.
+    Names and declared endpoints match existing definitions; endpoint and
+    credential values stay private in Rust. Unavailable candidates remain
+    visible with their reason, including Codex's unsupported SSE transport.
+    No server is automatically enabled: the person activates a candidate
+    per member or batches only unambiguous, nonconflicting definitions.
+    Choosing a different same-named origin replaces its conflicting binding;
+    removing a skill keeps connections already selected. Missing or ambiguous
+    declared requirements prevent launch until a matching MCP is selected.
+    Metadata changes invalidate the worker's resource revision. Parse/read
+    problems are shown as detection notes; the detector does not execute
+    scripts, install servers, infer undeclared workflows, or scan linked docs.
+  - The pilot requires Claude ACP 0.106.0+ and Agent SDK 0.3.322+, the local
+    combination verified with the real adapter. Run
+    `python3 scripts/verify-claude-resource-filter.py --adapter /path/to/claude-agent-acp/dist/index.js`
+    for an opt-in scratch-workspace probe using a few subscription tokens.
+    It verifies local/plugin skills, rejected excluded skills, selected and
+    internal MCP calls, excluded project/plugin servers never starting,
+    and a second independent session with no optional resources.
+    `python3 scripts/verify-codex-resource-filter.py` verifies the real
+    Codex transcript's skill instructions and selected/excluded MCPs.
+    `THINGMAKER_REAL_MEMBER_RESOURCES=1 cargo test -p thingmaker-supervisor --test real_member_resources`
+    exercises the production resolver, bridge and actor against real Codex,
+    reading a shared skill's supporting file and invoking its selected MCP.
+    Codex was verified on 0.167.0-alpha.4.1; missing discovery/config APIs
+    fail startup instead of falling back to inherited resources. The shared
+    catalog includes native Claude and Codex MCP definitions, with server
+    secrets resolved only in Rust. Same-named MCP definitions require one
+    chosen origin. OAuth sign-ins and available tools remain provider-specific.
+    Legacy commands, enterprise/synced skills, Codex plugin-only directories
+    and cloud connectors are not enumerated. Skill bodies are not translated
+    between harnesses: provider-specific instructions or tool dependencies
+    may still need adaptation.
+    The selection is a model-context/tool filter, not a filesystem sandbox:
+    Read/Bash, slash dispatch, plugin hooks and managed policy are separate.
+    Teams exports containing resource policies use format version 2 so older
+    importers cannot silently discard restrictions; other exports retain v1.
   - Jobs show in the Agents view, and worker sessions sit under their
     orchestrator in the sidebar.
 - **Forks** (`session/fork`; `storage::forks`, `commands::forks`): a copy of

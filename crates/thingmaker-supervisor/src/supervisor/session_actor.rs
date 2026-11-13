@@ -119,6 +119,8 @@ pub struct SessionActorConfig {
     /// message id); `None` copies the whole conversation.
     pub fork_at: Option<String>,
     pub before_prompt: Option<BeforePrompt>,
+    /// Keeps generated skill-only plugins alive for this actor's lifetime.
+    pub resource_files: Option<Arc<tempfile::TempDir>>,
 }
 
 impl SessionActorConfig {
@@ -138,6 +140,7 @@ impl SessionActorConfig {
             fork_from: None,
             fork_at: None,
             before_prompt: None,
+            resource_files: None,
         }
     }
 }

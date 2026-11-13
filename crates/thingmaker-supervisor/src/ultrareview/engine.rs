@@ -62,7 +62,7 @@ pub struct DelegationRunner {
 
 impl DelegationRunner {
     fn slot(reviewer: &Reviewer) -> WorkerSlot {
-        WorkerSlot { name: reviewer.worker_name(), provider: reviewer.provider, model: reviewer.model.clone(), effort: reviewer.effort.clone(), capabilities: Vec::new(), note: None, prompt: None }
+        WorkerSlot { name: reviewer.worker_name(), provider: reviewer.provider, model: reviewer.model.clone(), effort: reviewer.effort.clone(), capabilities: Vec::new(), note: None, prompt: None, resources: None }
     }
 }
 

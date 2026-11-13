@@ -46,6 +46,10 @@ struct MockLauncher {
 }
 
 impl WorkerLauncher for MockLauncher {
+    fn revision(&self, root: &std::path::Path, slot: &WorkerSlot) -> Result<Option<String>, DesktopError> {
+        let account = std::fs::read_to_string(root.join("account-revision")).unwrap_or_default();
+        Ok(Some(json!([slot.resources, account]).to_string()))
+    }
     fn launch(&self, spec: WorkerSpec) -> BoxFuture<Result<SessionActor, DesktopError>> {
         self.launched.lock().unwrap().push(spec.clone());
         let python = self.python.clone();
@@ -95,8 +99,8 @@ impl WorkerLauncher for MockLauncher {
 fn team() -> Combo {
     Combo {
         workers: vec![
-            WorkerSlot { name: "luna".into(), provider: Provider::Codex, model: Some("gpt-6-luna".into()), effort: Some("low".into()), capabilities: vec!["image".into(), "fast".into(), "code".into()], note: Some("images and quick edits".into()), prompt: None },
-            WorkerSlot { name: "sonnet".into(), provider: Provider::Claude, model: Some("sonnet".into()), effort: None, capabilities: vec!["code".into(), "review".into()], note: None, prompt: None },
+            WorkerSlot { name: "luna".into(), provider: Provider::Codex, model: Some("gpt-6-luna".into()), effort: Some("low".into()), capabilities: vec!["image".into(), "fast".into(), "code".into()], note: Some("images and quick edits".into()), prompt: None, resources: None },
+            WorkerSlot { name: "sonnet".into(), provider: Provider::Claude, model: Some("sonnet".into()), effort: None, capabilities: vec!["code".into(), "review".into()], note: None, prompt: None, resources: None },
         ],
         native_subagents: false,
     }
@@ -300,6 +304,33 @@ fn image_task() -> DelegateArgs {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn changing_a_members_resources_invalidates_warm_sessions_and_old_followups() {
+    use thingmaker_supervisor::integrations::member_resources::ResourceSelection;
+    let Some((delegation, launcher, _)) = service(&[]) else { return };
+    let root = tempfile::tempdir().unwrap();
+    let mut combo = team();
+    combo.workers[0].provider = Provider::Claude;
+    delegation.register("resources", Provider::Claude, root.path().to_path_buf(), combo.clone());
+    let first = delegation.delegate("resources", image_task()).unwrap();
+    delegation.await_jobs("resources", std::slice::from_ref(&first.id), Duration::from_secs(10), false).await.unwrap();
+    combo.workers[0].resources = Some(ResourceSelection { skills: vec!["skill:user:art".into()], mcps: vec![] });
+    delegation.set_combo("resources", combo.clone()).unwrap();
+    let error = delegation.delegate("resources", DelegateArgs { task: "Continue".into(), continue_job: Some(first.id), ..Default::default() }).unwrap_err();
+    assert!(error.contains("configuration changed"));
+    let second = delegation.delegate("resources", image_task()).unwrap();
+    assert!(!second.warm);
+    delegation.await_jobs("resources", &[second.id], Duration::from_secs(10), false).await.unwrap();
+    assert_eq!(launcher.launched.lock().unwrap().len(), 2);
+    // Same member and policy, but its account/resolved configuration changed.
+    std::fs::write(root.path().join("account-revision"), "another-account").unwrap();
+    let third = delegation.delegate("resources", image_task()).unwrap();
+    assert!(!third.warm);
+    delegation.await_jobs("resources", &[third.id], Duration::from_secs(10), false).await.unwrap();
+    assert_eq!(launcher.launched.lock().unwrap().len(), 3);
+    delegation.release("resources").await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_image_limit_parks_the_job_and_the_same_worker_finishes_it_later() {
     let Some((delegation, launcher, changes)) = service(&["--image-limit-once"]) else { return };
     delegation.set_retry_policy(quick_retries());
@@ -411,7 +442,7 @@ async fn a_free_worker_takes_the_next_job_and_closes_once_idle() {
 async fn local_jobs_take_turns_on_the_one_gpu() {
     let Some((delegation, launcher, _)) = service(&[]) else { return };
     let dir = tempfile::tempdir().unwrap();
-    let slot = |name: &str| WorkerSlot { name: name.into(), provider: Provider::Local, model: Some("@agent/qwen3:8b".into()), effort: None, capabilities: vec!["code".into()], note: None, prompt: None };
+    let slot = |name: &str| WorkerSlot { name: name.into(), provider: Provider::Local, model: Some("@agent/qwen3:8b".into()), effort: None, capabilities: vec!["code".into()], note: None, prompt: None, resources: None };
     delegation.register("lm-o", Provider::Local, dir.path().to_path_buf(), Combo { workers: vec![slot("first"), slot("second")], native_subagents: false });
     let task = |worker: &str| serde_json::from_value::<thingmaker_supervisor::delegation::jobs::DelegateArgs>(json!({ "task": "tidy the notes", "worker": worker })).unwrap();
     let one = delegation.delegate("lm-o", task("first")).unwrap();
