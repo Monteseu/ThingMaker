@@ -273,6 +273,69 @@ impl Storage {
         }
     }
 
+    /// Points every desktop record at a workspace folder's new location after
+    /// the folder was renamed or moved on disk: the workspace itself, any
+    /// workspace nested inside it, and stored paths under it (artifact
+    /// sources, worktrees, goal worktrees). Sessions, drafts and the rest hang
+    /// off the workspace id and follow it unchanged. `workspace_hash` is kept:
+    /// it names the folder the workspace's worktrees already live in.
+    pub fn workspace_relocate(
+        &self,
+        id: &str,
+        old_root: &str,
+        new_root: &str,
+        new_display_path: &str,
+    ) -> Result<WorkspaceRecord, StorageError> {
+        let old_display: String = self
+            .workspace_get(id)?
+            .ok_or_else(|| StorageError::NotFound(format!("workspace {id} not found")))?
+            .display_path;
+        if old_root != new_root && self.workspace_by_root(new_root)?.is_some() {
+            return Err(StorageError::Conflict(format!("another workspace already uses {new_root}")));
+        }
+        let conn = self.conn();
+        conn.execute_batch("BEGIN IMMEDIATE")?;
+        let result = (|| -> Result<(), StorageError> {
+            conn.execute(
+                "UPDATE workspaces SET canonical_root = ?2, display_path = ?3 WHERE id = ?1",
+                params![id, new_root, new_display_path],
+            )?;
+            // Everything stored under the old folder, whichever separator
+            // wrote it, keeps its place relative to the folder.
+            for separator in ["/", "\\"] {
+                for (table, column) in [
+                    ("workspaces", "canonical_root"),
+                    ("artifacts", "source_path"),
+                    ("worktrees", "path"),
+                    ("odysseys", "worktree_path"),
+                ] {
+                    conn.execute(
+                        &format!(
+                            "UPDATE {table} SET {column} = ?2 || substr({column}, length(?1) + 1)
+                             WHERE substr({column}, 1, length(?1) + 1) = ?1 || ?3"
+                        ),
+                        params![old_root, new_root, separator],
+                    )?;
+                }
+                conn.execute(
+                    "UPDATE workspaces SET display_path = ?2 || substr(display_path, length(?1) + 1)
+                     WHERE id <> ?4 AND substr(display_path, 1, length(?1) + 1) = ?1 || ?3",
+                    params![old_display, new_display_path, separator, id],
+                )?;
+            }
+            Ok(())
+        })();
+        match result {
+            Ok(()) => conn.execute_batch("COMMIT")?,
+            Err(error) => {
+                let _ = conn.execute_batch("ROLLBACK");
+                return Err(error);
+            }
+        }
+        self.workspace_get(id)?
+            .ok_or_else(|| StorageError::NotFound(format!("workspace {id} not found")))
+    }
+
     pub fn workspace_list(&self) -> Result<Vec<WorkspaceRecord>, StorageError> {
         let mut statement = self
             .conn()
@@ -642,6 +705,33 @@ mod tests {
             let stored = storage.session_upsert(&workspace.id, provider.as_str(), SessionOrigin::Desktop, provider).unwrap_or_else(|error| panic!("{provider:?}: {error}"));
             assert_eq!(stored.provider, provider);
         }
+    }
+
+    #[test]
+    fn relocating_moves_the_workspace_and_what_lies_under_it_only() {
+        let storage = Storage::open_in_memory().unwrap();
+        let moved = storage.workspace_upsert("/r/game", "~/r/game", "w-game").unwrap();
+        let nested = storage.workspace_upsert("/r/game/tools", "~/r/game/tools", "w-tools").unwrap();
+        let sibling = storage.workspace_upsert("/r/game-old", "~/r/game-old", "w-sib").unwrap();
+        let session = storage.session_upsert(&moved.id, "s-1", SessionOrigin::Desktop, Provider::Claude).unwrap();
+        storage.worktree_insert(&moved.id, "/r/game/.wt/a", "b", "main").unwrap();
+        storage.worktree_insert(&sibling.id, "/r/game-old/.wt/a", "b", "main").unwrap();
+
+        let record = storage.workspace_relocate(&moved.id, "/r/game", "/r/kidgame", "~/r/kidgame").unwrap();
+
+        assert_eq!(record.canonical_root, "/r/kidgame");
+        assert_eq!(record.display_path, "~/r/kidgame");
+        assert_eq!(record.workspace_hash, "w-game", "the worktrees' folder name is kept");
+        let nested = storage.workspace_get(&nested.id).unwrap().unwrap();
+        assert_eq!((nested.canonical_root.as_str(), nested.display_path.as_str()), ("/r/kidgame/tools", "~/r/kidgame/tools"));
+        assert_eq!(storage.workspace_get(&sibling.id).unwrap().unwrap().canonical_root, "/r/game-old", "a name that only starts the same is not under it");
+        assert!(storage.worktree_by_path("/r/kidgame/.wt/a").unwrap().is_some());
+        assert!(storage.worktree_by_path("/r/game-old/.wt/a").unwrap().is_some());
+        assert_eq!(storage.session_get(&session.id).unwrap().unwrap().workspace_id, moved.id);
+        assert!(matches!(
+            storage.workspace_relocate(&moved.id, "/r/kidgame", "/r/game-old", "~/r/game-old"),
+            Err(StorageError::Conflict(_))
+        ));
     }
 
     #[test]

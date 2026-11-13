@@ -9,6 +9,7 @@ import { startingProvider, useStore } from "../store";
 import { api } from "../ipc";
 import { OutboxPanel } from "./OutboxPanel";
 import { WipeDialog } from "./WipeDialog";
+import { RenameFolderDialog } from "./RenameFolderDialog";
 import { ProviderMark } from "./ProviderMark";
 import { relative, RowMenu, type Row } from "./Sidebar";
 import { IconArrowUp, IconBranch, IconCheck, IconChevron, IconDots } from "./icons";
@@ -61,6 +62,7 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }) {
   const setError = useStore((s) => s.setError);
   const [menuOpen, setMenuOpen] = useState(false);
   const [wiping, setWiping] = useState(false);
+  const [renamingFolder, setRenamingFolder] = useState(false);
   const closeMenu = useMemo(() => () => setMenuOpen(false), []);
   const menu = useDismiss(menuOpen, closeMenu);
 
@@ -124,6 +126,9 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }) {
               <button className="context-item" onClick={act(() => void navigator.clipboard?.writeText(root).catch(() => undefined))} role="menuitem" type="button">
                 {t("Copy path")}
               </button>
+              <button className="context-item" onClick={act(() => setRenamingFolder(true))} role="menuitem" type="button">
+                {t("Rename folder…")}
+              </button>
               <button className="context-item" onClick={act(() => void inspectWorkspace(workspaceId))} role="menuitem" type="button">
                 {t("Re-check agent setup")}
               </button>
@@ -139,6 +144,7 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }) {
       </header>
 
       {wiping && <WipeDialog name={name} onClose={() => setWiping(false)} workspaceId={workspaceId} />}
+      {renamingFolder && <RenameFolderDialog onClose={() => setRenamingFolder(false)} workspaceId={workspaceId} />}
 
       <OutboxPanel workspaceId={workspaceId} />
 

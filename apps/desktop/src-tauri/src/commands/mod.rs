@@ -28,6 +28,7 @@ pub mod local;
 pub mod accounts;
 pub mod update;
 pub mod workspace;
+pub mod rename;
 pub mod wipe;
 
 use thingmaker_supervisor::DesktopError;

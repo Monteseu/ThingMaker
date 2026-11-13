@@ -3,6 +3,7 @@
 pub mod explorer;
 pub mod files;
 pub mod identity;
+pub mod rename;
 pub mod search;
 
 pub use explorer::{DirEntry, EntryKind, list_dir};
