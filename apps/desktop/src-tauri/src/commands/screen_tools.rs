@@ -1,15 +1,19 @@
 //! Finds, and on request installs, what live Android video needs: adb,
-//! scrcpy and FFmpeg. Windows uses winget, macOS uses Homebrew.
+//! scrcpy and FFmpeg. Windows uses winget, macOS uses Homebrew. The host
+//! reports the exact commands an install runs; the renderer shows them and
+//! installs only what the person confirmed.
 use super::CommandResult;
 use serde::Serialize;
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     process::Stdio,
-    sync::atomic::{AtomicBool, Ordering},
-    time::Duration,
+    sync::{Mutex, OnceLock},
+    time::{Duration, Instant},
 };
 use thingmaker_supervisor::DesktopError;
 use tokio::process::Command;
+use tokio_util::sync::CancellationToken;
 
 fn executable(name: &str) -> String {
     if cfg!(windows) {
@@ -50,6 +54,77 @@ fn winget_roots() -> Vec<PathBuf> {
     roots
 }
 
+const SCRCPY_PACKAGE: &str = "Genymobile.scrcpy";
+const FFMPEG_PACKAGE: &str = "Gyan.FFmpeg";
+
+/// The winget packages that can hold `file`: those the plan installs (the
+/// scrcpy release bundles adb), plus the official platform tools.
+fn packages(file: &str) -> &'static [&'static str] {
+    match file {
+        "adb.exe" => &[SCRCPY_PACKAGE, "Google.PlatformTools"],
+        "scrcpy.exe" => &[SCRCPY_PACKAGE],
+        "ffmpeg.exe" => &[FFMPEG_PACKAGE, "Gyan.FFmpeg.Essentials"],
+        _ => &[],
+    }
+}
+
+/// Searches only the folders of `ids`: winget names each `<id>_<source>`.
+fn scan(roots: &[PathBuf], ids: &[&str], file: &str) -> Option<PathBuf> {
+    roots.iter().find_map(|root| {
+        let mut folders: Vec<PathBuf> = std::fs::read_dir(root)
+            .ok()?
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                let name = e.file_name().to_string_lossy().into_owned();
+                ids.iter().any(|id| {
+                    name.strip_prefix(id)
+                        .is_some_and(|rest| rest.starts_with('_'))
+                })
+            })
+            .map(|e| e.path())
+            .collect();
+        folders.sort();
+        folders.into_iter().find_map(|folder| search(&folder, file, 3))
+    })
+}
+
+/// How long a search that found nothing stands: device polling asks every
+/// few seconds, and a tool installed from a terminal still shows up soon.
+const MISS_TTL: Duration = Duration::from_secs(30);
+
+type Found = HashMap<String, (Instant, Option<PathBuf>)>;
+
+fn cache() -> &'static Mutex<Found> {
+    static CACHE: OnceLock<Mutex<Found>> = OnceLock::new();
+    CACHE.get_or_init(Default::default)
+}
+
+/// Package-folder searches, remembered: a hit while the file is still
+/// there, a miss for `MISS_TTL`.
+fn in_packages(file: &str) -> Option<PathBuf> {
+    let ids = packages(file);
+    if ids.is_empty() {
+        return None;
+    }
+    // Held through the search, so concurrent callers wait for one search.
+    let mut cache = cache().lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((at, found)) = cache.get(file) {
+        match found {
+            Some(path) if path.is_file() => return Some(path.clone()),
+            None if at.elapsed() < MISS_TTL => return None,
+            _ => {}
+        }
+    }
+    let found = scan(&winget_roots(), ids, file);
+    cache.insert(file.to_string(), (Instant::now(), found.clone()));
+    found
+}
+
+/// Forgets remembered searches, so a fresh install is found at once.
+fn forget() {
+    cache().lock().unwrap_or_else(|e| e.into_inner()).clear();
+}
+
 /// Find a tool even when launched from Finder rather than a login shell, or
 /// right after this app installed it.
 pub(super) fn find(name: &str) -> Option<PathBuf> {
@@ -68,42 +143,28 @@ pub(super) fn find(name: &str) -> Option<PathBuf> {
         return Some(found);
     }
     if cfg!(windows) {
-        for root in winget_roots() {
-            let Ok(packages) = std::fs::read_dir(&root) else {
-                continue;
-            };
-            for package in packages.filter_map(|e| e.ok()) {
-                if let Some(found) = search(&package.path(), &file, 3) {
-                    return Some(found);
-                }
-            }
-        }
+        return in_packages(&file);
     }
     None
 }
 
 /// The real folder of the installed scrcpy, following winget/Homebrew links:
-/// its server jar (and on Windows its bundled adb) lives beside it.
+/// its server jar (and on Windows its bundled adb) lives beside it. `dunce`
+/// keeps Windows paths free of the `\\?\` prefix, since they go to adb.
 pub(super) fn scrcpy_dir() -> Option<PathBuf> {
     let scrcpy = find("scrcpy")?;
-    let real = std::fs::canonicalize(&scrcpy).unwrap_or(scrcpy);
+    let real = dunce::canonicalize(&scrcpy).unwrap_or(scrcpy);
     real.parent().map(Path::to_path_buf)
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
 enum Tool {
     Adb,
     Scrcpy,
     Ffmpeg,
 }
 impl Tool {
-    fn label(self) -> &'static str {
-        match self {
-            Tool::Adb => "Android platform tools (adb)",
-            Tool::Scrcpy => "scrcpy",
-            Tool::Ffmpeg => "FFmpeg",
-        }
-    }
     fn present(self) -> bool {
         match self {
             Tool::Adb => super::screen::adb().is_file(),
@@ -120,15 +181,53 @@ fn missing() -> Vec<Tool> {
         .collect()
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Os {
+    Windows,
+    Mac,
+    Other,
+}
+
+fn os() -> Os {
+    if cfg!(windows) {
+        Os::Windows
+    } else if cfg!(target_os = "macos") {
+        Os::Mac
+    } else {
+        Os::Other
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum Manager {
+    Winget,
+    Homebrew,
+}
+
+/// What to do by hand when the app cannot install; the renderer words it.
+#[derive(Debug, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+enum Manual {
+    Homebrew { url: &'static str },
+    /// winget comes with Microsoft's App Installer.
+    Winget { url: &'static str },
+    Command { command: String },
+}
+
+#[derive(Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScreenTools {
-    /// Human names of the tools that are not installed.
-    missing: Vec<String>,
+    /// The tools that are not installed.
+    missing: Vec<Tool>,
     /// Whether this app can install them by itself on this computer.
     can_install: bool,
-    /// What to run by hand when it cannot.
-    manual: Option<String>,
+    /// The package manager an install runs.
+    manager: Option<Manager>,
+    /// The exact commands an install runs, for the person to confirm.
+    plan: Vec<String>,
+    /// What to do by hand when it cannot.
+    manual: Option<Manual>,
 }
 
 fn brew() -> Option<PathBuf> {
@@ -138,141 +237,268 @@ fn brew() -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-fn status() -> ScreenTools {
-    let missing = missing();
-    let (can_install, manual) = if cfg!(windows) {
-        (true, None)
-    } else if cfg!(target_os = "macos") {
-        match brew() {
-            Some(_) => (true, None),
-            None => (
-                false,
-                Some("Install Homebrew from https://brew.sh, then try again".to_string()),
-            ),
-        }
-    } else {
-        (false, Some("sudo apt install adb scrcpy ffmpeg".to_string()))
-    };
-    ScreenTools {
-        missing: missing.iter().map(|t| t.label().to_string()).collect(),
-        can_install: can_install && !missing.is_empty(),
-        manual: (!missing.is_empty()).then_some(manual).flatten(),
+/// winget.exe is an app execution alias, a reparse point that `is_file`
+/// may not follow, so only its presence is checked.
+fn winget() -> Option<PathBuf> {
+    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|paths| std::env::split_paths(&paths).collect())
+        .unwrap_or_default();
+    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+        dirs.push(PathBuf::from(local).join("Microsoft/WindowsApps"));
+    }
+    dirs.into_iter()
+        .map(|dir| dir.join("winget.exe"))
+        .find(|path| std::fs::symlink_metadata(path).is_ok())
+}
+
+/// The package manager on this computer, if the app can use one.
+fn manager() -> Option<PathBuf> {
+    match os() {
+        Os::Windows => winget(),
+        Os::Mac => brew(),
+        Os::Other => None,
+    }
+}
+
+#[derive(Debug, PartialEq)]
+struct Step {
+    program: PathBuf,
+    args: Vec<String>,
+}
+impl Step {
+    /// The command as the person reads it before confirming.
+    fn display(&self) -> String {
+        let program = self.program.display().to_string();
+        let program = if program.contains(' ') {
+            format!("\"{program}\"")
+        } else {
+            program
+        };
+        std::iter::once(program)
+            .chain(self.args.iter().cloned())
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 }
 
 /// The package-manager commands that install `missing`, de-duplicated.
-fn plan(missing: &[Tool]) -> Vec<Vec<String>> {
-    let mut steps: Vec<Vec<String>> = Vec::new();
-    let mut add = |step: Vec<&str>| {
-        let step: Vec<String> = step.into_iter().map(String::from).collect();
-        if !steps.contains(&step) {
-            steps.push(step);
-        }
-    };
+fn plan(os: Os, program: &Path, missing: &[Tool]) -> Vec<Step> {
+    let mut steps: Vec<Step> = Vec::new();
     for tool in missing {
-        if cfg!(windows) {
-            // scrcpy's Windows release ships its own adb.exe beside it.
-            let id = match tool {
-                Tool::Adb | Tool::Scrcpy => "Genymobile.scrcpy",
-                Tool::Ffmpeg => "Gyan.FFmpeg",
-            };
-            add(vec![
-                "install",
-                "--id",
-                id,
-                "--exact",
-                "--source",
-                "winget",
-                "--silent",
-                "--accept-package-agreements",
-                "--accept-source-agreements",
-                "--disable-interactivity",
-            ]);
-        } else {
-            add(match tool {
+        let args: Vec<&str> = match os {
+            Os::Windows => {
+                // scrcpy's Windows release ships its own adb.exe beside it.
+                let id = match tool {
+                    Tool::Adb | Tool::Scrcpy => SCRCPY_PACKAGE,
+                    Tool::Ffmpeg => FFMPEG_PACKAGE,
+                };
+                // Both are portable packages: user scope needs no admin.
+                vec![
+                    "install",
+                    "--id",
+                    id,
+                    "--exact",
+                    "--source",
+                    "winget",
+                    "--scope",
+                    "user",
+                    "--silent",
+                    "--accept-package-agreements",
+                    "--accept-source-agreements",
+                    "--disable-interactivity",
+                ]
+            }
+            Os::Mac => match tool {
                 Tool::Adb => vec!["install", "--cask", "android-platform-tools"],
                 Tool::Scrcpy => vec!["install", "scrcpy"],
                 Tool::Ffmpeg => vec!["install", "ffmpeg"],
-            });
+            },
+            Os::Other => return Vec::new(),
+        };
+        let step = Step {
+            program: program.to_path_buf(),
+            args: args.into_iter().map(String::from).collect(),
+        };
+        if !steps.contains(&step) {
+            steps.push(step);
         }
     }
     steps
 }
 
-static INSTALLING: AtomicBool = AtomicBool::new(false);
-
-#[tauri::command]
-pub fn screen_tools_status() -> ScreenTools {
-    status()
+/// What the app can do about `missing` on `os` with the package manager
+/// it found there, if any.
+fn assess(os: Os, program: Option<&Path>, missing: Vec<Tool>) -> (ScreenTools, Vec<Step>) {
+    let manager = match os {
+        Os::Windows => Manager::Winget,
+        _ => Manager::Homebrew,
+    };
+    let program = program.filter(|_| os != Os::Other);
+    let manual = match os {
+        _ if program.is_some() || missing.is_empty() => None,
+        Os::Windows => Some(Manual::Winget {
+            url: "https://apps.microsoft.com/detail/9NBLGGH4NNS1",
+        }),
+        Os::Mac => Some(Manual::Homebrew { url: "https://brew.sh" }),
+        Os::Other => Some(Manual::Command {
+            command: "sudo apt install adb scrcpy ffmpeg".into(),
+        }),
+    };
+    let steps = program
+        .map(|program| plan(os, program, &missing))
+        .unwrap_or_default();
+    let can_install = !steps.is_empty();
+    let tools = ScreenTools {
+        manager: can_install.then_some(manager),
+        plan: steps.iter().map(Step::display).collect(),
+        manual,
+        can_install,
+        missing,
+    };
+    (tools, steps)
 }
 
-#[tauri::command]
-pub async fn screen_tools_install() -> CommandResult<ScreenTools> {
-    let manager = if cfg!(windows) {
-        find("winget").unwrap_or_else(|| "winget.exe".into())
-    } else if cfg!(target_os = "macos") {
-        brew().ok_or_else(|| {
-            DesktopError::not_ready("Install Homebrew from https://brew.sh, then try again")
-        })?
+fn status() -> (ScreenTools, Vec<Step>) {
+    assess(os(), manager().as_deref(), missing())
+}
+
+/// The file-system searches block, so they run off the async runtime.
+async fn current() -> CommandResult<(ScreenTools, Vec<Step>)> {
+    tokio::task::spawn_blocking(status)
+        .await
+        .map_err(|_| DesktopError::io("Cannot check the device tools"))
+}
+
+/// Why an install did not leave every tool in place; the renderer words it.
+#[derive(Debug, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+enum Problem {
+    /// What needs installing differs from what the person confirmed.
+    PlanChanged,
+    /// Another install is running.
+    Busy,
+    /// The package manager is gone.
+    Unavailable,
+    Cancelled,
+    TimedOut { command: String },
+    CouldNotStart { command: String },
+    Failed { command: String, output: String },
+    /// Every command finished, yet some tool cannot be found.
+    StillMissing,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScreenToolsInstall {
+    tools: ScreenTools,
+    problem: Option<Problem>,
+}
+
+/// Judges an install by whether the tools can now be found: package
+/// managers report "already installed" as a failure.
+fn judge(failure: Option<Problem>, tools: &ScreenTools) -> Option<Problem> {
+    if tools.missing.is_empty() {
+        None
     } else {
-        return Err(DesktopError::unsupported(
-            "Install adb, scrcpy and FFmpeg with your package manager",
-        ));
+        Some(failure.unwrap_or(Problem::StillMissing))
+    }
+}
+
+/// The last few meaningful lines of a failed command's output.
+fn tail(stdout: &[u8], stderr: &[u8]) -> String {
+    let text = String::from_utf8_lossy(stderr).to_string() + &String::from_utf8_lossy(stdout);
+    let lines: Vec<_> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.len() > 2)
+        .collect();
+    lines[lines.len().saturating_sub(3)..].join(" ")
+}
+
+/// The running install, to refuse a second one and to cancel it.
+static RUNNING: Mutex<Option<CancellationToken>> = Mutex::new(None);
+
+#[tauri::command]
+pub async fn screen_tools_status() -> CommandResult<ScreenTools> {
+    Ok(current().await?.0)
+}
+
+/// Runs the install commands, but only those in `plan`: the commands the
+/// person saw and confirmed.
+#[tauri::command]
+pub async fn screen_tools_install(plan: Vec<String>) -> CommandResult<ScreenToolsInstall> {
+    let (tools, steps) = current().await?;
+    let refuse = |tools, problem| {
+        Ok(ScreenToolsInstall {
+            tools,
+            problem: Some(problem),
+        })
     };
-    if INSTALLING.swap(true, Ordering::AcqRel) {
-        return Err(DesktopError::conflict("The device tools are already installing"));
+    if !tools.missing.is_empty() && !tools.can_install {
+        return refuse(tools, Problem::Unavailable);
+    }
+    if !tools.plan.iter().all(|step| plan.contains(step)) {
+        return refuse(tools, Problem::PlanChanged);
+    }
+    let token = CancellationToken::new();
+    {
+        let mut running = RUNNING.lock().unwrap_or_else(|e| e.into_inner());
+        if running.is_some() {
+            return refuse(tools, Problem::Busy);
+        }
+        *running = Some(token.clone());
     }
     struct Release;
     impl Drop for Release {
         fn drop(&mut self) {
-            INSTALLING.store(false, Ordering::Release);
+            *RUNNING.lock().unwrap_or_else(|e| e.into_inner()) = None;
         }
     }
     let _release = Release;
     let mut failure = None;
-    for step in plan(&missing()) {
-        let mut command = Command::new(&manager);
+    for step in steps {
+        let shown = step.display();
+        let mut command = Command::new(&step.program);
         command
-            .args(&step)
+            .args(&step.args)
             .env("NONINTERACTIVE", "1")
             .env("HOMEBREW_NO_ENV_HINTS", "1")
             .stdin(Stdio::null())
             .kill_on_drop(true);
         #[cfg(windows)]
         command.creation_flags(0x08000000);
-        match tokio::time::timeout(Duration::from_secs(15 * 60), command.output()).await {
-            Err(_) => failure = Some("Installing the device tools timed out".to_string()),
-            Ok(Err(_)) => {
-                failure = Some(if cfg!(windows) {
-                    "winget is not available. Install App Installer from the Microsoft Store, then try again".into()
-                } else {
-                    "Homebrew could not start".into()
-                })
+        let run = tokio::time::timeout(Duration::from_secs(15 * 60), command.output());
+        // Dropping the unfinished run kills the package manager.
+        let outcome = tokio::select! {
+            outcome = run => outcome,
+            _ = token.cancelled() => {
+                failure = Some(Problem::Cancelled);
+                break;
             }
+        };
+        match outcome {
+            Err(_) => failure = Some(Problem::TimedOut { command: shown }),
+            Ok(Err(_)) => failure = Some(Problem::CouldNotStart { command: shown }),
             Ok(Ok(out)) if !out.status.success() => {
-                let text = String::from_utf8_lossy(&out.stderr).to_string()
-                    + &String::from_utf8_lossy(&out.stdout);
-                let tail: Vec<_> = text
-                    .lines()
-                    .map(str::trim)
-                    .filter(|l| l.len() > 2)
-                    .collect();
-                let tail = tail[tail.len().saturating_sub(3)..].join(" ");
-                failure = Some(format!("{} failed: {tail}", step.join(" ")));
+                failure = Some(Problem::Failed {
+                    command: shown,
+                    output: tail(&out.stdout, &out.stderr),
+                })
             }
             Ok(Ok(_)) => {}
         }
     }
-    // Package managers report "already installed" as a failure; what counts
-    // is whether every tool can now be found.
-    let result = status();
-    match failure {
-        Some(message) if !result.missing.is_empty() => Err(DesktopError::io(message)),
-        _ if !result.missing.is_empty() => Err(DesktopError::io(format!(
-            "Installed, but cannot find {} yet. Restart ThingMaker and try again",
-            result.missing.join(", ")
-        ))),
-        _ => Ok(result),
+    forget();
+    let (tools, _) = current().await?;
+    let problem = judge(failure, &tools);
+    Ok(ScreenToolsInstall { tools, problem })
+}
+
+/// Stops a running install; whatever was already installed stays.
+#[tauri::command]
+pub fn screen_tools_cancel() {
+    if let Some(token) = RUNNING.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        token.cancel();
     }
 }
 
@@ -281,15 +507,77 @@ mod tests {
     use super::*;
     #[test]
     fn plans_each_package_once() {
-        let steps = plan(&[Tool::Adb, Tool::Scrcpy, Tool::Ffmpeg]);
-        if cfg!(windows) {
-            assert_eq!(steps.len(), 2);
-            assert!(steps[0].contains(&"Genymobile.scrcpy".to_string()));
-            assert!(steps[1].contains(&"Gyan.FFmpeg".to_string()));
-        } else {
-            assert_eq!(steps.len(), 3);
-        }
-        assert!(plan(&[]).is_empty());
+        let all = [Tool::Adb, Tool::Scrcpy, Tool::Ffmpeg];
+        let winget = Path::new("winget.exe");
+        let steps = plan(Os::Windows, winget, &all);
+        assert_eq!(steps.len(), 2);
+        assert!(steps[0].args.contains(&"Genymobile.scrcpy".to_string()));
+        assert!(steps[1].args.contains(&"Gyan.FFmpeg".to_string()));
+        assert!(steps[0].display().contains("--scope user"));
+        assert_eq!(plan(Os::Mac, Path::new("/opt/homebrew/bin/brew"), &all).len(), 3);
+        assert!(plan(Os::Windows, winget, &[]).is_empty());
+    }
+    #[test]
+    fn shows_the_exact_commands_it_runs() {
+        let (tools, steps) = assess(
+            Os::Mac,
+            Some(Path::new("/opt/homebrew/bin/brew")),
+            vec![Tool::Adb, Tool::Ffmpeg],
+        );
+        assert!(tools.can_install);
+        assert_eq!(tools.manager, Some(Manager::Homebrew));
+        assert_eq!(
+            tools.plan,
+            [
+                "/opt/homebrew/bin/brew install --cask android-platform-tools",
+                "/opt/homebrew/bin/brew install ffmpeg",
+            ]
+        );
+        assert_eq!(tools.plan, steps.iter().map(Step::display).collect::<Vec<_>>());
+        assert_eq!(tools.manual, None);
+        let spaced = Step {
+            program: PathBuf::from(r"C:\Program Files\winget.exe"),
+            args: vec!["install".into()],
+        };
+        assert_eq!(spaced.display(), r#""C:\Program Files\winget.exe" install"#);
+    }
+    #[test]
+    fn windows_without_winget_explains_instead_of_installing() {
+        let (tools, steps) = assess(Os::Windows, None, vec![Tool::Scrcpy]);
+        assert!(!tools.can_install);
+        assert!(steps.is_empty() && tools.plan.is_empty());
+        assert_eq!(tools.manager, None);
+        assert!(matches!(tools.manual, Some(Manual::Winget { .. })));
+        let json = serde_json::to_value(&tools).unwrap();
+        assert_eq!(json["missing"], serde_json::json!(["scrcpy"]));
+        assert_eq!(json["manual"]["kind"], "winget");
+        let (tools, _) = assess(Os::Windows, Some(Path::new("winget.exe")), vec![Tool::Scrcpy]);
+        assert!(tools.can_install);
+        assert_eq!(tools.manager, Some(Manager::Winget));
+        assert!(tools.plan[0].contains("--accept-package-agreements"));
+        let (tools, _) = assess(Os::Windows, None, vec![]);
+        assert_eq!(tools.manual, None);
+    }
+    #[test]
+    fn judges_an_install_by_what_can_be_found_after() {
+        let (found, _) = assess(Os::Mac, None, vec![]);
+        let (lacking, _) = assess(Os::Mac, None, vec![Tool::Ffmpeg]);
+        let failed = || Problem::Failed {
+            command: "brew install ffmpeg".into(),
+            output: "already installed".into(),
+        };
+        // "Already installed" exits non-zero, yet the tools are there.
+        assert_eq!(judge(Some(failed()), &found), None);
+        assert_eq!(judge(Some(Problem::Cancelled), &found), None);
+        assert_eq!(judge(Some(failed()), &lacking), Some(failed()));
+        assert_eq!(judge(None, &lacking), Some(Problem::StillMissing));
+        assert_eq!(judge(None, &found), None);
+        let json = serde_json::to_value(Problem::TimedOut { command: "x".into() }).unwrap();
+        assert_eq!(json, serde_json::json!({ "kind": "timedOut", "command": "x" }));
+    }
+    #[test]
+    fn keeps_the_last_lines_of_failed_output() {
+        assert_eq!(tail(b"one\ntwo\n", b"three\nfour\n.\n"), "four one two");
     }
     #[test]
     fn searches_nested_package_folders() {
@@ -302,5 +590,22 @@ mod tests {
             Some(nested.join("ffmpeg.exe"))
         );
         assert_eq!(search(&dir.path().join("pkg"), "ffmpeg.exe", 1), None);
+    }
+    #[test]
+    fn scans_only_the_planned_package_folders() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        for folder in [
+            "Other.Tool_Microsoft.Winget.Source_8wekyb3d8bbwe/bin",
+            "Gyan.FFmpegX_Microsoft.Winget.Source_8wekyb3d8bbwe/bin",
+            "Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-9.0.2-full_build/bin",
+        ] {
+            std::fs::create_dir_all(root.join(folder)).unwrap();
+            std::fs::write(root.join(folder).join("ffmpeg.exe"), b"").unwrap();
+        }
+        let found = scan(&[root.clone()], packages("ffmpeg.exe"), "ffmpeg.exe").unwrap();
+        assert!(found.starts_with(root.join("Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe")));
+        assert_eq!(scan(&[root], packages("scrcpy.exe"), "scrcpy.exe"), None);
+        assert!(packages("winget.exe").is_empty());
     }
 }

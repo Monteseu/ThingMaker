@@ -189,6 +189,7 @@ pub fn run() {
             commands::screen_stream::screen_stream_heartbeat,
             commands::screen_tools::screen_tools_status,
             commands::screen_tools::screen_tools_install,
+            commands::screen_tools::screen_tools_cancel,
             commands::workspace::execution_profiles,
             commands::workspace::workspace_inspect,
             commands::workspace::workspace_trust,

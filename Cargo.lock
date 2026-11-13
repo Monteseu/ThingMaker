@@ -5003,6 +5003,7 @@ dependencies = [
  "base64 0.22.1",
  "blake3",
  "core-foundation 0.10.1",
+ "dunce",
  "futures-util",
  "hyper",
  "hyper-util",

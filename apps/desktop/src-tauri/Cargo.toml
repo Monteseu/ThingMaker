@@ -44,6 +44,8 @@ tokio-tungstenite = { version = "=0.29.0", features = ["connect", "rustls-tls-na
 tower = { version = "=0.5.3", features = ["util"] }
 futures-util = "=0.3.34"
 base64 = "=0.22.1"
+# Real paths without the Windows `\\?\` prefix, which command-line tools such as adb can mishandle.
+dunce = "=1.0.5"
 image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg"] }
 rustls = { version = "=0.23.44", default-features = false, features = ["ring", "std"] }
 # The same-Wi-Fi download of an APK: a TLS listener with its own certificate.

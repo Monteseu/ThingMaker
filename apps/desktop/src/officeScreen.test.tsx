@@ -1,8 +1,8 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ScreenDevice, ScreenStreamEvent } from "@thingmaker/contracts";
+import type { ScreenDevice, ScreenStreamEvent, ScreenTools, ScreenToolsInstall } from "@thingmaker/contracts";
 
-vi.mock("./ipc", () => ({ api: { screenDevices: vi.fn(), screenCapture: vi.fn(), screenStreamStart: vi.fn(), screenStreamStop: vi.fn(), screenStreamAck: vi.fn(), screenStreamHeartbeat: vi.fn(), screenToolsStatus: vi.fn(), screenToolsInstall: vi.fn() } }));
+vi.mock("./ipc", () => ({ api: { screenDevices: vi.fn(), screenCapture: vi.fn(), screenStreamStart: vi.fn(), screenStreamStop: vi.fn(), screenStreamAck: vi.fn(), screenStreamHeartbeat: vi.fn(), screenToolsStatus: vi.fn(), screenToolsInstall: vi.fn(), screenToolsCancel: vi.fn() } }));
 import { api } from "./ipc";
 import { OfficeScreen } from "./components/OfficeScreen";
 
@@ -16,8 +16,19 @@ const ack = vi.mocked(api.screenStreamAck);
 const heartbeat = vi.mocked(api.screenStreamHeartbeat);
 const toolsStatus = vi.mocked(api.screenToolsStatus);
 const toolsInstall = vi.mocked(api.screenToolsInstall);
+const toolsCancel = vi.mocked(api.screenToolsCancel);
 let onVideo: (event: ScreenStreamEvent) => void;
 const frame = "data:image/jpeg;base64,aGVsbG8=";
+const tools = (overrides: Partial<ScreenTools> = {}): ScreenTools => ({ missing: [], canInstall: false, manager: null, plan: [], manual: null, ...overrides });
+const wingetPlan = ["winget.exe install --id Genymobile.scrcpy --exact --source winget --scope user --silent --accept-package-agreements --accept-source-agreements --disable-interactivity"];
+const missingScrcpy = tools({ missing: ["scrcpy"], canInstall: true, manager: "winget", plan: wingetPlan });
+async function failVideo() {
+  await mount();
+  fireEvent.click(screen.getByRole("button", { name: "Screen (2)" }));
+  await act(async () => {});
+  act(() => onVideo({ kind: "error", message: "missing" }));
+  await act(async () => {});
+}
 async function mount() {
   const result = render(<OfficeScreen><div>Office scene</div></OfficeScreen>);
   await act(async () => {});
@@ -30,7 +41,8 @@ beforeEach(() => {
   capture.mockResolvedValue(frame);
   start.mockImplementation(async (_device, onEvent) => { onVideo = onEvent; return "stream-1"; });
   stop.mockResolvedValue(); ack.mockResolvedValue(); heartbeat.mockResolvedValue();
-  toolsStatus.mockResolvedValue({ missing: [], canInstall: false, manual: null });
+  toolsStatus.mockResolvedValue(tools());
+  toolsCancel.mockResolvedValue();
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
@@ -183,19 +195,74 @@ describe("office device screens", () => {
     expect(heartbeat).not.toHaveBeenCalled();
   });
   it("offers to install missing video tools and retries once they are in", async () => {
-    toolsStatus.mockResolvedValue({ missing: ["scrcpy", "FFmpeg"], canInstall: true, manual: null });
-    toolsInstall.mockResolvedValue({ missing: [], canInstall: false, manual: null });
-    await mount();
-    fireEvent.click(screen.getByRole("button", { name: "Screen (2)" }));
-    await act(async () => {});
-    act(() => onVideo({ kind: "error", message: "missing" }));
-    await act(async () => {});
-    expect(screen.getByText("Missing: scrcpy, FFmpeg")).toBeTruthy();
+    toolsStatus.mockResolvedValue(tools({ missing: ["adb", "scrcpy", "ffmpeg"], canInstall: true, manager: "homebrew", plan: ["brew install scrcpy"] }));
+    toolsInstall.mockResolvedValue({ tools: tools(), problem: null });
+    await failVideo();
+    expect(screen.getByText("Missing: Android platform tools (adb), scrcpy, FFmpeg")).toBeTruthy();
     const starts = start.mock.calls.length;
     fireEvent.click(screen.getByRole("button", { name: "Install dependencies" }));
+    fireEvent.click(screen.getByRole("button", { name: "Install" }));
     await act(async () => {});
     expect(toolsInstall).toHaveBeenCalledTimes(1);
     expect(start.mock.calls.length).toBe(starts + 1);
+  });
+
+  it("shows the exact commands and installs only after the person confirms", async () => {
+    toolsStatus.mockResolvedValue(missingScrcpy);
+    toolsInstall.mockResolvedValue({ tools: tools(), problem: null });
+    await failVideo();
+    fireEvent.click(screen.getByRole("button", { name: "Install dependencies" }));
+    expect(screen.getByText(wingetPlan[0]!)).toBeTruthy();
+    expect(screen.getByText(/licence agreements on your behalf/)).toBeTruthy();
+    expect(toolsInstall).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByText(wingetPlan[0]!)).toBeNull();
+    expect(toolsInstall).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Install dependencies" }));
+    fireEvent.click(screen.getByRole("button", { name: "Install" }));
+    await act(async () => {});
+    expect(toolsInstall).toHaveBeenCalledWith(wingetPlan);
+  });
+
+  it("explains how to install by hand when the app cannot", async () => {
+    toolsStatus.mockResolvedValue(tools({ missing: ["scrcpy"], manual: { kind: "winget", url: "https://apps.microsoft.com/detail/9NBLGGH4NNS1" } }));
+    await failVideo();
+    expect(screen.getByText("Install App Installer from the Microsoft Store (https://apps.microsoft.com/detail/9NBLGGH4NNS1) to get winget, then try again.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Install dependencies" })).toBeNull();
+  });
+
+  it("says why an install failed and offers it again", async () => {
+    toolsStatus.mockResolvedValue(missingScrcpy);
+    toolsInstall.mockResolvedValue({ tools: missingScrcpy, problem: { kind: "failed", command: "winget install", output: "No network" } });
+    await failVideo();
+    const starts = start.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Install dependencies" }));
+    fireEvent.click(screen.getByRole("button", { name: "Install" }));
+    await act(async () => {});
+    expect(screen.getByText("winget install failed: No network")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Install dependencies" })).toBeTruthy();
+    expect(start.mock.calls.length).toBe(starts);
+  });
+
+  it("keeps an install running across Retry, and can cancel it", async () => {
+    let finish!: (value: ScreenToolsInstall) => void;
+    toolsStatus.mockResolvedValue(missingScrcpy);
+    toolsInstall.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    await failVideo();
+    fireEvent.click(screen.getByRole("button", { name: "Install dependencies" }));
+    fireEvent.click(screen.getByRole("button", { name: "Install" }));
+    expect(screen.getByText("Installing… this can take a few minutes")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await act(async () => {});
+    act(() => onVideo({ kind: "error", message: "missing" }));
+    await act(async () => {});
+    expect(screen.getByText("Installing… this can take a few minutes")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Install dependencies" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(toolsCancel).toHaveBeenCalledTimes(1);
+    await act(async () => { finish({ tools: missingScrcpy, problem: { kind: "cancelled" } }); });
+    expect(screen.getByText("Install cancelled.")).toBeTruthy();
+    expect(toolsInstall).toHaveBeenCalledTimes(1);
   });
 
   it("reconnects on its own after a failure, backing off, and recovers", async () => {
@@ -228,7 +295,7 @@ describe("office device screens", () => {
   });
 
   it("waits for missing tools instead of retrying, then retries once they appear", async () => {
-    toolsStatus.mockResolvedValue({ missing: ["scrcpy"], canInstall: true, manual: null });
+    toolsStatus.mockResolvedValue(missingScrcpy);
     await mount();
     fireEvent.click(screen.getByRole("button", { name: "Screen (2)" }));
     await act(async () => {});
@@ -236,7 +303,7 @@ describe("office device screens", () => {
     await act(async () => {});
     await act(async () => { await vi.advanceTimersByTimeAsync(9000); });
     expect(start).toHaveBeenCalledTimes(1);
-    toolsStatus.mockResolvedValue({ missing: [], canInstall: false, manual: null });
+    toolsStatus.mockResolvedValue(tools());
     await act(async () => { await vi.advanceTimersByTimeAsync(1100); });
     await act(async () => { await vi.advanceTimersByTimeAsync(3100); });
     expect(start).toHaveBeenCalledTimes(2);
