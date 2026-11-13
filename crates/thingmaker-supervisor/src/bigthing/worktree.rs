@@ -104,7 +104,7 @@ impl Engine {
         let goal = self.load(goal_id)?.goal;
         let (Some(path), Some(base)) = (goal.worktree_path.as_deref(), goal.base_ref.as_deref()) else { return Ok(Vec::new()) };
         let range = format!("{base}..HEAD");
-        let output = std::process::Command::new("git").args(["-C", path, "log", "--format=%H%x09%s", "-n", "200", &range]).output().map_err(|error| DesktopError::io(error.to_string()))?;
+        let output = crate::platform::command("git").args(["-C", path, "log", "--format=%H%x09%s", "-n", "200", &range]).output().map_err(|error| DesktopError::io(error.to_string()))?;
         Ok(String::from_utf8_lossy(&output.stdout)
             .lines()
             .filter_map(|line| line.split_once('\t'))

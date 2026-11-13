@@ -34,6 +34,14 @@ pub fn command(program: impl AsRef<OsStr>) -> Command {
     #[cfg(not(windows))]
     let command = Command::new(program);
     #[cfg(windows)]
+    no_window(&mut command);
+    command
+}
+
+/// Keeps a console program from flashing its own empty console window on
+/// Windows: the app is a GUI process, so every child would get one.
+pub fn no_window(command: &mut Command) -> &mut Command {
+    #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x08000000); // CREATE_NO_WINDOW

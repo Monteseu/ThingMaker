@@ -451,7 +451,7 @@ fn send_signal(pid: u32, signal: Signal) {
     // Windows has no process groups in the POSIX sense; Job Objects are the
     // R0 follow-up (spec section 8.6). Best effort tree kill.
     let _ = signal;
-    let _ = std::process::Command::new("taskkill")
+    let _ = crate::platform::no_window(&mut std::process::Command::new("taskkill"))
         .args(["/PID", &pid.to_string(), "/T", "/F"])
         .stdout(Stdio::null())
         .stderr(Stdio::null())

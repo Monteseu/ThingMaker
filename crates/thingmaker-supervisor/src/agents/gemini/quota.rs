@@ -15,7 +15,6 @@ use crate::{
         Provider,
         events::{QuotaSnapshot, QuotaStatus, QuotaWindow},
     },
-    security::EnvironmentProfile,
 };
 
 /// Start an idle TUI and capture its status JSON in a private temporary directory.
@@ -42,7 +41,7 @@ pub fn read_quota(program: &Path, home: &Path, timeout: Duration) -> Result<Quot
     cmd.args(["--settings", &settings.to_string()]);
     cmd.cwd(home);
     cmd.env_clear();
-    for (key, value) in EnvironmentProfile::trusted_local().resolve(std::env::vars()) {
+    for (key, value) in super::launch::environment().resolve(std::env::vars()) {
         cmd.env(key, value);
     }
     cmd.env("TERM", "xterm-256color");

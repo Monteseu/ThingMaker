@@ -97,6 +97,7 @@ pub fn read_models_for_account(executable: &PathBuf, args: &[String], scratch: &
 
     std::fs::create_dir_all(scratch).map_err(|error| error.to_string())?;
     let mut command = Command::new(executable);
+    crate::platform::no_window(&mut command);
     if let Some(dir) = config_dir { command.env("CLAUDE_CONFIG_DIR", dir); }
     let mut child = command.args(args)
         .current_dir(scratch)

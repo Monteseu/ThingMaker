@@ -13,7 +13,9 @@
 //! - a Codex inside an app (the ChatGPT app ships one) updates with that app;
 //!   an npm-installed one updates like the adapter; anything else with its
 //!   own `codex update`;
-//! - Antigravity's `agy` updates with `agy update` (it also updates itself).
+//! - Antigravity's `agy` updates with `agy update`. It would also update
+//!   itself, relaunching in a terminal of its own; every call but that one
+//!   holds it back (`gemini::launch::DISABLE_AUTO_UPDATE`).
 
 use std::{
     io::Read,
@@ -200,7 +202,7 @@ pub fn newer(latest: &str, installed: &str) -> bool {
 /// goes (an `npm install` that fills a pipe nobody reads would hang until the
 /// deadline). Returns success and the tail of what it printed.
 pub fn run_capturing(mut command: Command, timeout: Duration) -> Result<(bool, String), String> {
-    let mut child = command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|error| error.to_string())?;
+    let mut child = crate::platform::no_window(&mut command).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|error| error.to_string())?;
     let drain = |stream: Option<Box<dyn Read + Send>>| {
         std::thread::spawn(move || {
             let mut bytes = Vec::new();
@@ -256,8 +258,13 @@ fn npm(install: &NpmInstall, args: &[&str]) -> Command {
     command
 }
 
-fn version_of(program: &Path) -> Result<String, String> {
+fn version_of(provider: Provider, program: &Path) -> Result<String, String> {
     let mut command = command(program, None);
+    // Asking agy its version must not set it updating itself; `update` below
+    // is the one call that leaves it free to.
+    if provider == Provider::Gemini {
+        command.env(super::gemini::launch::DISABLE_AUTO_UPDATE, "1");
+    }
     command.arg("--version");
     let (ok, output) = run_capturing(command, VERSION_TIMEOUT)?;
     version_in(&output).ok_or_else(|| if ok { format!("`--version` printed no version: {output}") } else { format!("`--version` failed: {output}") })
@@ -290,21 +297,31 @@ pub fn check(provider: Provider, program: &Path, prefix_args: &[String], ask_lat
         Channel::SelfUpdate { program } => {
             answer.can_update = true;
             answer.how = format!("its own `{} update`", program.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default());
-            match version_of(&program) {
+            match version_of(provider, &program) {
                 Ok(version) => answer.installed = Some(version),
                 Err(problem) => answer.problem = Some(problem),
+            }
+            // agy no longer tells us itself, because its own update opens a
+            // terminal; its published manifest answers over HTTP instead.
+            if ask_latest && provider == Provider::Gemini {
+                match super::gemini::probe::latest_version(VIEW_TIMEOUT) {
+                    Ok(version) => answer.latest = Some(version),
+                    Err(problem) => {
+                        answer.problem.get_or_insert(problem);
+                    }
+                }
             }
         }
         Channel::App { app } => {
             answer.how = format!("updates with {app}");
-            match version_of(program) {
+            match version_of(provider, program) {
                 Ok(version) => answer.installed = Some(version),
                 Err(problem) => answer.problem = Some(problem),
             }
         }
         Channel::Unmanaged { hint } => {
             answer.how = hint;
-            match version_of(program) {
+            match version_of(provider, program) {
                 Ok(version) => answer.installed = Some(version),
                 Err(problem) => answer.problem = Some(problem),
             }

@@ -173,7 +173,7 @@ fn shell() -> (&'static str, &'static str) {
 fn run_command(root: &Path, spec: &str) -> Result<CheckOutcome, DesktopError> {
     let started = Instant::now();
     let (program, flag) = shell();
-    let mut child = Command::new(program)
+    let mut child = crate::platform::no_window(&mut Command::new(program))
         .arg(flag)
         .arg(spec)
         .current_dir(root)
