@@ -51,7 +51,7 @@ import type {
   ProviderVersion,
   TurnPhase,
 } from "@thingmaker/contracts";
-import { EMPTY_COMBO, JOB_EVENT, ULTRA_REVIEW_EVENT, type UltraReview, type UrDecision, type UrStartRequest, SESSION_TITLE_EVENT, type SessionTitleChange, ODYSSEY_STATE_NOTE, PROVIDERS, PROVIDER_LABELS, BIGTHING_EVENT, asConfigOptions, ACCOUNT_PROVIDERS, isEffortOption, isRetiredModel, parseLocalModel, type AccountView, type Combo, type JobView, type ProviderModel, type BigThingEvent, type BigThingRuntime, type NestedReport, type TeamPreset, type WipeReport, type WorkerSlot } from "@thingmaker/contracts";
+import { EMPTY_COMBO, JOB_EVENT, ULTRA_REVIEW_EVENT, type UltraReview, type UrDecision, type UrStartRequest, SESSION_TITLE_EVENT, type SessionTitleChange, ODYSSEY_STATE_NOTE, PROVIDERS, PROVIDER_LABELS, BIGTHING_EVENT, asConfigOptions, ACCOUNT_PROVIDERS, isEffortOption, isRetiredModel, parseLocalModel, type AccountView, type Combo, type JobView, type ProviderModel, type BigThingEvent, type BigThingRuntime, type NestedReport, type TeamPreset, type RenameReport, type WipeReport, type WorkerSlot } from "@thingmaker/contracts";
 import { isLocalChat } from "./localModels";
 import { HANDOFF_SPLIT, handoffBrief, hasConversation, helperPresetFrom, readHelperPresets, readPresets, upsertHelperPreset, upsertJob, upsertPreset, withoutHandoff, type HelperPreset } from "./team";
 import { copiesItself, forkBranch, forkTitle, type ForkPoint } from "./fork";
@@ -342,6 +342,8 @@ type State = {
   removeWorkspace: (workspaceId: string) => Promise<void>;
   /** Deletes for good every Claude and Codex session ThingMaker ran in a project, from this computer. */
   wipeSessions: (workspaceId: string) => Promise<WipeReport | null>;
+  /** Renames the project's folder on disk and everything that names it; null on failure (the error is shown). */
+  renameWorkspaceFolder: (workspaceId: string, newName: string) => Promise<RenameReport | null>;
   resetSessionDefaults: () => Promise<void>;
   noteImageFiles: (sessionId: string, files: string[], initial: boolean) => void;
   loadUiPrefs: () => Promise<void>;
@@ -2121,6 +2123,19 @@ export const useStore = create<State>((set, get) => ({
     try {
       const report = await api.workspaceWipeSessions(workspaceId);
       await get().loadRecords(workspaceId);
+      return report;
+    } catch (error) {
+      get().setError(error);
+      return null;
+    }
+  },
+
+  async renameWorkspaceFolder(workspaceId, newName) {
+    try {
+      const report = await api.workspaceRenameFolder(workspaceId, newName);
+      set({ workspaces: await api.workspaceList() });
+      await get().inspectWorkspace(workspaceId);
+      void get().loadRecords(workspaceId);
       return report;
     } catch (error) {
       get().setError(error);

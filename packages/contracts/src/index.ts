@@ -1639,6 +1639,18 @@ export type NotificationSettings = {
 };
 
 /** What Wipe All removed from this computer. */
+/** What renaming a project's folder updated besides the folder itself. */
+export type RenameReport = {
+  workspace: WorkspaceRecord;
+  oldRoot: string;
+  newRoot: string;
+  claudeTranscriptsMoved: number;
+  configEntriesUpdated: number;
+  gitWorktreesRepaired: boolean;
+  /** What could not be updated, in words. */
+  problems: string[];
+};
+
 export type WipeReport = {
   claudeSessions: number;
   codexSessions: number;
@@ -1923,6 +1935,7 @@ export const COMMANDS = {
   localImage: "local_image",
   workspaceRemove: "workspace_remove",
   workspaceWipeSessions: "workspace_wipe_sessions",
+  workspaceRenameFolder: "workspace_rename_folder",
   attachmentPick: "attachment_pick",
   attachmentAddPaths: "attachment_add_paths",
   attachmentAddBytes: "attachment_add_bytes",

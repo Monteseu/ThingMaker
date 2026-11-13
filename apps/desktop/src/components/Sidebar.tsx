@@ -9,6 +9,7 @@ import { ProviderBadge } from "./ProviderMark";
 import { UsageMeter } from "./UsageMeter";
 import { ProviderLogo } from "./ProviderLogo";
 import { WipeDialog } from "./WipeDialog";
+import { RenameFolderDialog } from "./RenameFolderDialog";
 import { t } from "../i18n";
 import {
   IconChevron,
@@ -231,7 +232,7 @@ function SessionRow({
 
 /** Right-click (or the ⋯ action) menu for one session row. */
 /** A project's right-click menu. */
-function ProjectMenu({ workspaceId, at, onClose, onWipe, onRemove }: { workspaceId: string; at: { x: number; y: number }; onClose: () => void; onWipe: () => void; onRemove: () => void }) {
+function ProjectMenu({ workspaceId, at, onClose, onWipe, onRemove, onRenameFolder }: { workspaceId: string; at: { x: number; y: number }; onClose: () => void; onWipe: () => void; onRemove: () => void; onRenameFolder: () => void }) {
   const root = useStore((s) => s.workspaces.find((workspace) => workspace.id === workspaceId)?.canonicalRoot);
   const setError = useStore((s) => s.setError);
   const menu = useRef<HTMLDivElement>(null);
@@ -261,6 +262,9 @@ function ProjectMenu({ workspaceId, at, onClose, onWipe, onRemove }: { workspace
           {t("Open folder")}
         </button>
       )}
+      <button className="context-item" onClick={act(onRenameFolder)} role="menuitem" title={t("Rename the folder on disk; sessions and settings follow it")} type="button">
+        {t("Rename folder…")}
+      </button>
       <button className="context-item context-item-danger" onClick={act(onWipe)} role="menuitem" title={t("Permanently delete every Claude Code and Codex session ThingMaker ran in this project, from this computer")} type="button">
         {t("Wipe all sessions…")}
       </button>
@@ -550,6 +554,7 @@ export function Sidebar() {
   const renameSession = useStore((s) => s.renameSession);
   const removeWorkspace = useStore((s) => s.removeWorkspace);
   const [removing, setRemoving] = useState<{ id: string; name: string; live: number } | null>(null);
+  const [renamingFolder, setRenamingFolder] = useState<string | null>(null);
   const [wiping, setWiping] = useState<{ id: string; name: string } | null>(null);
   const [projectMenu, setProjectMenu] = useState<{ id: string; name: string; live: number; at: { x: number; y: number } } | null>(null);
 
@@ -869,11 +874,13 @@ export function Sidebar() {
           at={projectMenu.at}
           onClose={() => setProjectMenu(null)}
           onRemove={() => setRemoving({ id: projectMenu.id, name: projectMenu.name, live: projectMenu.live })}
+          onRenameFolder={() => setRenamingFolder(projectMenu.id)}
           onWipe={() => setWiping({ id: projectMenu.id, name: projectMenu.name })}
           workspaceId={projectMenu.id}
         />
       )}
       {wiping && <WipeDialog name={wiping.name} onClose={() => setWiping(null)} workspaceId={wiping.id} />}
+      {renamingFolder && <RenameFolderDialog onClose={() => setRenamingFolder(null)} workspaceId={renamingFolder} />}
       {removing && (
         <div aria-modal="true" className="modal-backdrop" role="dialog">
           <div className="modal">

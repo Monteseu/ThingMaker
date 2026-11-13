@@ -133,7 +133,7 @@ pub async fn workspace_wipe_sessions(workspace_id: String, state: State<'_, AppS
 }
 
 /// The person's own folder for a provider and each extra account's.
-fn provider_folders(provider: Provider, home: &Path, data_dir: &Path) -> Vec<PathBuf> {
+pub(crate) fn provider_folders(provider: Provider, home: &Path, data_dir: &Path) -> Vec<PathBuf> {
     let mut folders: Vec<PathBuf> = accounts::main_folder(provider, home).into_iter().collect();
     let extra = data_dir.join("accounts").join(provider.as_str());
     if let Ok(entries) = std::fs::read_dir(&extra) {
