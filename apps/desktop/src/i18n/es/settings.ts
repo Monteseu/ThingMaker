@@ -441,6 +441,7 @@ export const settings: Record<string, string> = {
   "set in Settings": "elegido en Ajustes",
   "from the environment": "del entorno",
   "found on this computer": "encontrado en este ordenador",
+  "Reset scheduled for {time}": "Reinicio programado para {time}",
   "{percent}% left in the {window} window, as the provider last reported it": "Queda un {percent}% en la ventana de {window}, según lo último que dijo el proveedor",
   "Not installed": "No instalado",
   "Signing in…": "Iniciando sesión…",

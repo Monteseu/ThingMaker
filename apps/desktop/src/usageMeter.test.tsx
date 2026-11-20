@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { pairWindows, resetTime, untilText, UsageMeter } from "./components/UsageMeter";
 
 it("pairs each Antigravity bucket's 5h and 7d windows on one row", () => {
@@ -14,11 +14,35 @@ it("pairs each Antigravity bucket's 5h and 7d windows on one row", () => {
 
 it("distinguishes Antigravity buckets that share a weekly reset window", () => {
   render(<>
-    <UsageMeter usage={{ label: "Gemini · 7d", usedPercent: 25, windowSeconds: 604800 }} />
-    <UsageMeter usage={{ label: "Claude/GPT · 7d", usedPercent: 100, windowSeconds: 604800 }} />
+    <UsageMeter fetchedAtUnixMs={0} usage={{ label: "Gemini · 7d", usedPercent: 25, windowSeconds: 604800 }} />
+    <UsageMeter fetchedAtUnixMs={0} usage={{ label: "Claude/GPT · 7d", usedPercent: 100, windowSeconds: 604800 }} />
   </>);
   expect(screen.getByText("Gemini · 7d").textContent).toContain("75%");
   expect(screen.getByText("Claude/GPT · 7d").textContent).toContain("0%");
+});
+
+it("shows the local reset time in each window's tooltip when the provider reports it", () => {
+  const fetched = new Date(2026, 10, 20, 10);
+  const later = new Date(2026, 10, 20, 12);
+  const nextDay = new Date(2026, 10, 21, 0, 15);
+  const nextWeek = new Date(2026, 10, 26, 15, 30);
+  vi.useFakeTimers({ toFake: ["Date"] });
+  try {
+    // The last reading is older than the hover, so a relative reset must use the reading time.
+    vi.setSystemTime(new Date(2026, 10, 20, 11));
+    render(<>
+      <UsageMeter fetchedAtUnixMs={+fetched} usage={{ label: "Short", usedPercent: 25, windowSeconds: 18_000, resetAfterSeconds: 7200 }} />
+      <UsageMeter fetchedAtUnixMs={+fetched} usage={{ label: "Overnight", usedPercent: 25, windowSeconds: 18_000, resetAtUnix: +nextDay / 1000 }} />
+      <UsageMeter fetchedAtUnixMs={+fetched} usage={{ label: "Long", usedPercent: 50, windowSeconds: 604_800, resetAtUnix: +nextWeek / 1000 }} />
+      <UsageMeter fetchedAtUnixMs={+fetched} usage={{ label: "Unknown", usedPercent: 75, windowSeconds: 604_800 }} />
+    </>);
+    expect(screen.getByTitle(`75% left in the Short window, as the provider last reported it. Reset scheduled for ${later.toLocaleTimeString("en", { timeStyle: "short" })}`)).toBeTruthy();
+    expect(screen.getByTitle(`75% left in the Overnight window, as the provider last reported it. Reset scheduled for ${nextDay.toLocaleString("en", { dateStyle: "medium", timeStyle: "short" })}`)).toBeTruthy();
+    expect(screen.getByTitle(`50% left in the Long window, as the provider last reported it. Reset scheduled for ${nextWeek.toLocaleString("en", { dateStyle: "medium", timeStyle: "short" })}`)).toBeTruthy();
+    expect(screen.getByTitle("25% left in the Unknown window, as the provider last reported it")).toBeTruthy();
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 describe("when a spent window refills", () => {

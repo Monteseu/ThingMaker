@@ -1086,9 +1086,9 @@ export function Sidebar() {
               <div className="sidebar-meter-row" key={`${provider}-${row}`} title={snapshot.limitReached ? `${title} · ${t("limit reached")}` : title}>
                 <span className={`sidebar-meter-name ${snapshot.limitReached ? "sidebar-meter-limit" : ""}`}>{row === 0 && <ProviderLogo provider={provider} size={16} />}</span>
                 {pair.short
-                  ? <UsageMeter usage={pair.short} {...(pair.group ? { shortName: `${pair.group} · 5h` } : {})} />
+                  ? <UsageMeter usage={pair.short} fetchedAtUnixMs={snapshot.fetchedAtUnixMs} {...(pair.group ? { shortName: `${pair.group} · 5h` } : {})} />
                   : <span className="sidebar-meter-group">{pair.group}</span>}
-                {pair.long ? <UsageMeter usage={pair.long} {...(pair.group ? { shortName: "7d" } : {})} /> : <span />}
+                {pair.long ? <UsageMeter usage={pair.long} fetchedAtUnixMs={snapshot.fetchedAtUnixMs} {...(pair.group ? { shortName: "7d" } : {})} /> : <span />}
               </div>
             ));
           })}

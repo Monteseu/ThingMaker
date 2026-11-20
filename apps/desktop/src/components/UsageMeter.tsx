@@ -3,14 +3,23 @@
  * and the window's name. The Providers page and the sidebar footer share it.
  */
 import type { UsageWindow } from "@thingmaker/contracts";
-import { t } from "../i18n";
+import { language, t } from "../i18n";
 import { windowName } from "./UsageLine";
 
-export function UsageMeter({ usage, shortName }: { usage: UsageWindow; shortName?: string }) {
+export function UsageMeter({ usage, fetchedAtUnixMs, shortName }: { usage: UsageWindow; fetchedAtUnixMs: number; shortName?: string }) {
   const left = Math.max(0, 100 - Math.round(usage.usedPercent));
   const name = usage.label ?? windowName(usage.windowSeconds);
+  const remaining = t("{percent}% left in the {window} window, as the provider last reported it", { percent: left, window: name });
+  const at = resetTime(usage, fetchedAtUnixMs);
+  const reset = at === null ? null : new Date(at);
+  let title = remaining;
+  if (reset && Number.isFinite(reset.getTime())) {
+    const showDate = usage.windowSeconds >= 86_400 || reset.toDateString() !== new Date().toDateString();
+    const time = reset.toLocaleString(language(), showDate ? { dateStyle: "medium", timeStyle: "short" } : { timeStyle: "short" });
+    title = `${remaining}. ${t("Reset scheduled for {time}", { time })}`;
+  }
   return (
-    <span className="provider-meter" title={t("{percent}% left in the {window} window, as the provider last reported it", { percent: left, window: name })}>
+    <span className="provider-meter" title={title}>
       <span className="provider-meter-bar">
         <span className={left < 25 ? "low" : ""} style={{ width: `${left}%` }} />
       </span>

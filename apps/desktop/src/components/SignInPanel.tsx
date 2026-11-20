@@ -69,7 +69,7 @@ function Meters({ provider }: { provider: Provider }) {
   return (
     <>
       {windows.map((window, index) => (
-        <UsageMeter key={index} usage={window} />
+        <UsageMeter key={index} usage={window} fetchedAtUnixMs={usage.fetchedAtUnixMs} />
       ))}
       {usage.limitReached && <span className="chip-warn-text">{t("limit reached")}</span>}
     </>
