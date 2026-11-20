@@ -49,12 +49,20 @@ pub fn read_quota(program: &Path, timeout: Duration) -> Result<QuotaSnapshot, St
 }
 
 pub fn read_quota_for_account(program: &Path, folder: Option<&Path>, timeout: Duration) -> Result<QuotaSnapshot, String> {
-    quota_from_status(&read_status_payload(program, folder, timeout, false)?, now_unix_ms())
+    read_quota_while_active(program, folder, timeout, || true)
+}
+
+pub fn read_quota_while_active(program: &Path, folder: Option<&Path>, timeout: Duration, is_active: impl Fn() -> bool) -> Result<QuotaSnapshot, String> {
+    quota_from_status(&read_status_payload(program, folder, timeout, false, is_active)?, now_unix_ms())
 }
 
 /// Identity comes from agy's documented status line, never from credentials.
 pub fn read_identity_for_account(program: &Path, folder: Option<&Path>, timeout: Duration) -> Result<(Option<String>, Option<String>), String> {
-    let payload = read_status_payload(program, folder, timeout, true)?;
+    read_identity_while_active(program, folder, timeout, || true)
+}
+
+pub(super) fn read_identity_while_active(program: &Path, folder: Option<&Path>, timeout: Duration, is_active: impl Fn() -> bool) -> Result<(Option<String>, Option<String>), String> {
+    let payload = read_status_payload(program, folder, timeout, true, is_active)?;
     Ok(identity_from_status(&payload))
 }
 
@@ -68,7 +76,10 @@ fn payload_ready(payload: &Value, identity: bool) -> bool {
     else { quota_from_status(payload, now_unix_ms()).is_ok() }
 }
 
-fn read_status_payload(program: &Path, folder: Option<&Path>, timeout: Duration, identity: bool) -> Result<Value, String> {
+fn read_status_payload(program: &Path, folder: Option<&Path>, timeout: Duration, identity: bool, is_active: impl Fn() -> bool) -> Result<Value, String> {
+    if !is_active() {
+        return Err("Antigravity status probe paused while ThingMaker is inactive".into());
+    }
     if let Some(folder) = folder {
         super::launch::require_isolated_token(folder)?;
         super::probe::verify_file_auth(program, timeout)?;
@@ -114,6 +125,9 @@ fn read_status_payload(program: &Path, folder: Option<&Path>, timeout: Duration,
     cmd.env("THINGMAKER_QUOTA_OUTPUT", &output);
     let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
     let mut writer = pair.master.take_writer().map_err(|e| e.to_string())?;
+    if !is_active() {
+        return Err("Antigravity status probe paused while ThingMaker is inactive".into());
+    }
     let mut child = pair
         .slave
         .spawn_command(cmd)
@@ -150,6 +164,9 @@ fn read_status_payload(program: &Path, folder: Option<&Path>, timeout: Duration,
             && payload_ready(&payload, identity)
         {
             break Ok(payload);
+        }
+        if !is_active() {
+            break Err("Antigravity status probe paused while ThingMaker is inactive".into());
         }
         if in_setup.load(Ordering::Relaxed) {
             break Err(SETUP_HINT.into());

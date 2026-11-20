@@ -9,6 +9,7 @@
  */
 import { create } from "zustand";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type {
   AmendmentRecord,
   DiffScope,
@@ -1118,14 +1119,37 @@ export const useStore = create<State>((set, get) => ({
       // to the conversation it had open.
       const rehydrated = get().rehydrate();
       void get().loadDefaultCombo();
-      // Both accounts' usage for the sidebar, now and every five minutes: the
-      // sessions report it too, but only while one is running.
+      // Refresh sidebar usage when the Windows app is active. The host also
+      // checks foreground ownership before starting a CLI, including for calls from the phone.
+      const usageInterval = 5 * 60_000;
       const readUsage = () => {
-        // Local Models are free: there is no usage to read.
         for (const provider of PROVIDERS) if (provider !== "local") void get().refreshUsage(provider);
       };
-      readUsage();
-      setInterval(readUsage, 5 * 60_000);
+      if (!IS_REMOTE && navigator.userAgent.includes("Windows")) {
+        let nextUsagePoll = 0;
+        let usageTimer: ReturnType<typeof setTimeout>;
+        const pollWhileFocused = () => {
+          clearTimeout(usageTimer);
+          const now = Date.now();
+          if (now >= nextUsagePoll) {
+            nextUsagePoll = now + usageInterval;
+            readUsage();
+          }
+          usageTimer = setTimeout(pollWhileFocused, nextUsagePoll - now);
+        };
+        const appWindow = getCurrentWindow();
+        let focusReported = false;
+        void appWindow.onFocusChanged(({ payload: focused }) => {
+          focusReported = true;
+          if (focused) pollWhileFocused();
+          else clearTimeout(usageTimer);
+        }).then(async () => {
+          if (await appWindow.isFocused() && !focusReported) pollWhileFocused();
+        }).catch(() => undefined);
+      } else {
+        readUsage();
+        setInterval(readUsage, usageInterval);
+      }
       void get().loadTeamPresets();
       void get().loadQuickChats();
       void listen<JobView>(JOB_EVENT, (event) => get().noteJob(event.payload));
@@ -1357,8 +1381,10 @@ export const useStore = create<State>((set, get) => ({
     try {
       const quota = await api.providerQuota(provider);
       // A reading is for the account it was asked about, or it is not one.
-      if (!quota || quota.provider !== provider) throw new Error("no reading");
-      get().noteQuota(quota);
+      if (quota) {
+        if (quota.provider !== provider) throw new Error("reading for another provider");
+        get().noteQuota(quota);
+      }
     } catch {
       // A reading that cannot be taken leaves the last one in place; it is
       // evidence, never a decision. Claude's refusal-based reading is the

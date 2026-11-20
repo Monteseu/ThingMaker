@@ -472,7 +472,7 @@ export const api = {
     channel.onmessage = onProgress;
     return call<void>(COMMANDS.appUpdateInstall, { onProgress: channel });
   },
-  providerQuota: (provider: Provider) => call<QuotaSnapshot>(COMMANDS.providerQuota, { provider }),
+  providerQuota: (provider: Provider) => call<QuotaSnapshot | null>(COMMANDS.providerQuota, { provider }),
   providerLogout: (provider: Provider, account?: string) => call<void>(COMMANDS.providerLogout, { provider, account: account ?? null }),
   accountsList: (provider: Provider) => call<AccountView[]>(COMMANDS.accountsList, { provider }),
   accountAdd: (provider: Provider, label: string) => call<AccountView>(COMMANDS.accountAdd, { provider, label }),

@@ -46,7 +46,7 @@ pub(crate) fn auth_status(resolved: &ResolvedProvider, folder: Option<&Path>, ge
     match resolved.provider {
         Provider::Claude => claude::auth::read_status(&resolved.program, &resolved.prefix_args, folder, Duration::from_secs(30)),
         Provider::Codex => codex::probe::read_status(&resolved.program, folder, Duration::from_secs(30)),
-        Provider::Gemini => gemini::probe::read_status_with_identity(&resolved.program, folder, Duration::from_secs(30), gemini_accounts),
+        Provider::Gemini => gemini::probe::read_status_with_identity(&resolved.program, folder, Duration::from_secs(30), || gemini_accounts && can_probe_quota()),
         // "Signed in" for Local Models means Ollama answers: there is no
         // account. Its version stands where an account would.
         Provider::Local => match thingmaker_supervisor::agents::local::ollama::Ollama::local().version() {
@@ -321,43 +321,67 @@ pub async fn provider_models(provider: Provider, state: State<'_, AppState>) -> 
     .map_err(|error| DesktopError::io(error.to_string()))?
 }
 
+pub(super) fn can_probe_quota() -> bool {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+
+        let mut owner = 0;
+        // SAFETY: GetForegroundWindow returns an HWND, and owner is writable.
+        unsafe {
+            let foreground = GetForegroundWindow();
+            !foreground.is_null()
+                && GetWindowThreadProcessId(foreground, &mut owner) != 0
+                && owner == std::process::id()
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        true
+    }
+}
+
 /// Asks a provider for its account's quota now, rather than waiting for the
 /// next report on a session's stream.
 ///
 /// Reads each CLI’s own usage data without spending a model turn.
 #[tauri::command]
-pub async fn provider_quota(provider: Provider, state: State<'_, AppState>) -> CommandResult<thingmaker_supervisor::agents::events::QuotaSnapshot> {
+pub async fn provider_quota(provider: Provider, state: State<'_, AppState>) -> CommandResult<Option<thingmaker_supervisor::agents::events::QuotaSnapshot>> {
+    if !can_probe_quota() {
+        return Ok(None);
+    }
     let resolved = state.resolve_provider(provider)?;
     let home = state.home.clone().unwrap_or_default();
-    let snapshot = match provider {
-        // Claude Code is asked for its own `/usage` data; the adapter's
-        // script locates the Claude Code binary it ships with.
-        Provider::Claude => {
-            let script = resolved.prefix_args.first().map(std::path::PathBuf::from).unwrap_or_default();
-            let binary = claude::usage_probe::locate_claude_binary(&script, &home)
-                .ok_or_else(|| DesktopError::not_ready("Claude Code's own program was not found beside the adapter"))?;
-            let folder = state.try_account_folder(Provider::Claude, None)?;
-            tauri::async_runtime::spawn_blocking(move || claude::usage_probe::read_quota(&binary, folder.as_deref(), Duration::from_secs(30)).map_err(DesktopError::io))
-                .await
-                .map_err(|error| DesktopError::io(error.to_string()))??
+    let folder = state.try_account_folder(provider, None)?;
+    let snapshot = tauri::async_runtime::spawn_blocking(move || {
+        // The worker can be scheduled after the window has lost focus.
+        if !can_probe_quota() {
+            return Ok(None);
         }
-        Provider::Codex => {
-            let folder = state.try_account_folder(Provider::Codex, None)?;
-            tauri::async_runtime::spawn_blocking(move || codex::probe::read_quota(&resolved.program, folder.as_deref(), Duration::from_secs(30)).map_err(DesktopError::io))
-                .await
-                .map_err(|error| DesktopError::io(error.to_string()))??
+        match provider {
+            // The adapter's script locates the Claude Code binary that handles `/usage`.
+            Provider::Claude => {
+                let script = resolved.prefix_args.first().map(std::path::PathBuf::from).unwrap_or_default();
+                let binary = claude::usage_probe::locate_claude_binary(&script, &home)
+                    .ok_or_else(|| DesktopError::not_ready("Claude Code's own program was not found beside the adapter"))?;
+                claude::usage_probe::read_quota(&binary, folder.as_deref(), Duration::from_secs(30))
+            }
+            Provider::Codex => {
+                codex::probe::read_quota(&resolved.program, folder.as_deref(), Duration::from_secs(30))
+            }
+            Provider::Gemini => {
+                gemini::quota::read_quota_while_active(&resolved.program, folder.as_deref(), Duration::from_secs(30), can_probe_quota)
+            }
+            Provider::Local => return Err(DesktopError::unsupported("Local Models are free and have no quota.")),
         }
-        Provider::Gemini => {
-            let folder = state.try_account_folder(Provider::Gemini, None)?;
-            tauri::async_runtime::spawn_blocking(move || gemini::quota::read_quota_for_account(&resolved.program, folder.as_deref(), Duration::from_secs(30)).map_err(DesktopError::io))
-                .await
-                .map_err(|error| DesktopError::io(error.to_string()))??
-        }
-        Provider::Local => return Err(DesktopError::unsupported("Local Models are free and have no quota.")),
-    };
+        .map(Some)
+        .map_err(DesktopError::io)
+    })
+    .await
+    .map_err(|error| DesktopError::io(error.to_string()))??;
     // The router places work by the same reading the sidebar shows.
-    if let Some(delegation) = state.delegation.get() {
-        delegation.note_quota(snapshot.clone());
+    if let (Some(delegation), Some(quota)) = (state.delegation.get(), &snapshot) {
+        delegation.note_quota(quota.clone());
     }
     Ok(snapshot)
 }

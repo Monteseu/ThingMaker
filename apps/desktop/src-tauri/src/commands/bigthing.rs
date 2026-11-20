@@ -92,7 +92,7 @@ impl EngineHost for HostEngine {
             if provider == Provider::Gemini {
                 return None;
             }
-            super::providers::provider_quota(provider, app.state::<AppState>()).await.ok()
+            super::providers::provider_quota(provider, app.state::<AppState>()).await.ok().flatten()
         })
     }
 

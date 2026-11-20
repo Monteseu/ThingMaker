@@ -215,14 +215,14 @@ pub fn read_status(program: &Path, timeout: Duration) -> ProviderAuthStatus {
 }
 
 pub fn read_status_for_account(program: &Path, folder: Option<&Path>, timeout: Duration) -> ProviderAuthStatus {
-    read_status_with_identity(program, folder, timeout, true)
+    read_status_with_identity(program, folder, timeout, || true)
 }
 
-pub fn read_status_with_identity(program: &Path, folder: Option<&Path>, timeout: Duration, identity: bool) -> ProviderAuthStatus {
+pub fn read_status_with_identity(program: &Path, folder: Option<&Path>, timeout: Duration, read_identity: impl Fn() -> bool) -> ProviderAuthStatus {
     match read_models_for_account(program, folder, timeout) {
-        Ok(_) if !identity => ProviderAuthStatus { provider: Provider::Gemini, logged_in: Some(true), setup_required: None, method: Some("google".into()), account: None, plan: None, problem: None },
+        Ok(_) if !read_identity() => ProviderAuthStatus { provider: Provider::Gemini, logged_in: Some(true), setup_required: None, method: Some("google".into()), account: None, plan: None, problem: None },
         Ok(_) => {
-            let identity = super::quota::read_identity_for_account(program, folder, timeout.min(Duration::from_secs(10)));
+            let identity = super::quota::read_identity_while_active(program, folder, timeout.min(Duration::from_secs(10)), read_identity);
             let setup = matches!(&identity, Err(problem) if problem == super::quota::SETUP_HINT);
             let identity = identity.ok();
             ProviderAuthStatus { provider: Provider::Gemini, logged_in: Some(true), setup_required: setup.then_some(true), method: Some("google".into()), account: identity.as_ref().and_then(|value| value.0.clone()), plan: identity.and_then(|value| value.1), problem: setup.then(|| super::quota::SETUP_HINT.to_string()) }
