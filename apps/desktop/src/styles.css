@@ -4698,6 +4698,17 @@ body.resizing-sidebar * {
   color: var(--text);
 }
 
+.project-menu {
+  max-height: 100vh;
+  overflow-y: auto;
+}
+
+.project-menu .context-item:disabled {
+  opacity: 0.5;
+  background: none;
+  cursor: default;
+}
+
 .session-rename {
   flex: 1;
   display: flex;

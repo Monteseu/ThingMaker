@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { IS_REMOTE } from "../remote/mode";
 import { PhoneAppSettings } from "../remote/PhoneAppSettings";
 import type { Provider, QuickChat } from "@thingmaker/contracts";
@@ -245,17 +245,36 @@ function SessionRow({
 
 /** Right-click (or the ⋯ action) menu for one session row. */
 /** A project's right-click menu. */
-function ProjectMenu({ workspaceId, at, onClose, onWipe, onRemove, onRenameFolder }: { workspaceId: string; at: { x: number; y: number }; onClose: () => void; onWipe: () => void; onRemove: () => void; onRenameFolder: () => void }) {
+function ProjectMenu({ workspaceId, at, trigger, onClose, onWipe, onRemove, onRenameFolder, onMoveUp, onMoveDown }: {
+  workspaceId: string;
+  at: { x: number; y: number };
+  trigger: HTMLButtonElement | null;
+  onClose: () => void;
+  onWipe: () => void;
+  onRemove: () => void;
+  onRenameFolder: () => void;
+  onMoveUp: (() => void) | undefined;
+  onMoveDown: (() => void) | undefined;
+}) {
   const root = useStore((s) => s.workspaces.find((workspace) => workspace.id === workspaceId)?.canonicalRoot);
   const setError = useStore((s) => s.setError);
   const menu = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const element = menu.current;
+    if (!element) return;
+    element.style.left = `${Math.max(0, Math.min(at.x, window.innerWidth - element.offsetWidth))}px`;
+    element.style.top = `${Math.max(0, Math.min(at.y, window.innerHeight - element.offsetHeight))}px`;
+  }, [at, root, onMoveUp, onMoveDown]);
   useEffect(() => {
-    menu.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    menu.current?.querySelector<HTMLButtonElement>("button:enabled")?.focus();
     const onDown = (event: MouseEvent) => {
       if (!menu.current?.contains(event.target as Node)) onClose();
     };
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        onClose();
+        trigger?.focus();
+      }
     };
     document.addEventListener("mousedown", onDown, true);
     document.addEventListener("keydown", onKey);
@@ -263,13 +282,23 @@ function ProjectMenu({ workspaceId, at, onClose, onWipe, onRemove, onRenameFolde
       document.removeEventListener("mousedown", onDown, true);
       document.removeEventListener("keydown", onKey);
     };
-  }, [onClose]);
+  }, [onClose, trigger]);
   const act = (run: () => void) => () => {
     run();
     onClose();
   };
   return (
-    <div className="context-menu" ref={menu} role="menu" style={{ left: Math.min(at.x, window.innerWidth - 220), top: Math.min(at.y, window.innerHeight - 130) }}>
+    <div className="context-menu project-menu" ref={menu} role="menu">
+      {(onMoveUp || onMoveDown) && (
+        <>
+          <button className="context-item" disabled={!onMoveUp} onClick={onMoveUp && act(onMoveUp)} role="menuitem" type="button">
+            {t("Move up")}
+          </button>
+          <button className="context-item" disabled={!onMoveDown} onClick={onMoveDown && act(onMoveDown)} role="menuitem" type="button">
+            {t("Move down")}
+          </button>
+        </>
+      )}
       {root && (
         <button className="context-item" onClick={act(() => void api.revealInFinder(root).catch(setError))} role="menuitem" type="button">
           {t("Open folder")}
@@ -534,6 +563,8 @@ function remember(key: string, value: unknown) {
   }
 }
 
+const PROJECT_ORDER_KEY = "thingmaker.sidebar.projectOrder";
+
 export function Sidebar() {
   const workspaces = useStore((s) => s.workspaces);
   const inspections = useStore((s) => s.inspections);
@@ -633,7 +664,16 @@ export function Sidebar() {
   const [removing, setRemoving] = useState<{ id: string; name: string; live: number } | null>(null);
   const [renamingFolder, setRenamingFolder] = useState<string | null>(null);
   const [wiping, setWiping] = useState<{ id: string; name: string } | null>(null);
-  const [projectMenu, setProjectMenu] = useState<{ id: string; name: string; live: number; at: { x: number; y: number } } | null>(null);
+  const [projectMenu, setProjectMenu] = useState<{ id: string; name: string; live: number; at: { x: number; y: number }; trigger: HTMLButtonElement | null } | null>(null);
+  const [projectOrder, setProjectOrder] = useState(() => {
+    const stored = remembered<unknown>(PROJECT_ORDER_KEY, []);
+    return Array.isArray(stored) ? stored.filter((id): id is string => typeof id === "string") : [];
+  });
+  const restoreProjectFocus = useRef<HTMLButtonElement | null>(null);
+  useLayoutEffect(() => {
+    restoreProjectFocus.current?.focus();
+    restoreProjectFocus.current = null;
+  }, [projectOrder]);
 
   /** Rows per workspace, so the pinned group can be assembled across them. */
   const quickChats = useStore((s) => s.quickChats);
@@ -719,6 +759,24 @@ export function Sidebar() {
   const allPinned = groups.flatMap((group) => group.pinnedRows);
   // Quick chats are listed on their own, newest first, below the projects.
   const projectGroups = groups.filter((group) => !quickById.has(group.workspace.id));
+  if (projectOrder.length > 0) {
+    const positions = new Map(projectOrder.map((id, index) => [id, index]));
+    // The registry returns newest first. Append projects added since the last move in creation order.
+    projectGroups.sort((a, b) =>
+      (positions.get(a.workspace.id) ?? projectOrder.length) - (positions.get(b.workspace.id) ?? projectOrder.length)
+      || a.workspace.createdAt - b.workspace.createdAt,
+    );
+  }
+  const projectMenuIndex = projectGroups.findIndex(({ workspace }) => workspace.id === projectMenu?.id);
+  const moveProject = (destination: number) => {
+    if (!projectMenu || projectMenuIndex < 0 || destination < 0 || destination >= projectGroups.length) return;
+    const next = projectGroups.map(({ workspace }) => workspace.id);
+    next.splice(projectMenuIndex, 1);
+    next.splice(destination, 0, projectMenu.id);
+    restoreProjectFocus.current = projectMenu.trigger;
+    setProjectOrder(next);
+    remember(PROJECT_ORDER_KEY, next);
+  };
   const quickGroups = groups
     .filter((group) => quickById.has(group.workspace.id))
     .sort((a, b) => (quickById.get(b.workspace.id)?.createdAt ?? 0) - (quickById.get(a.workspace.id)?.createdAt ?? 0));
@@ -805,7 +863,8 @@ export function Sidebar() {
                 onContextMenu={(event) => {
                   if (IS_REMOTE) return;
                   event.preventDefault();
-                  setProjectMenu({ id: workspace.id, name: project, live: liveCount, at: { x: event.clientX, y: event.clientY } });
+                  const trigger = event.currentTarget.querySelector<HTMLButtonElement>(".ws-name");
+                  setProjectMenu({ id: workspace.id, name: project, live: liveCount, at: { x: event.clientX, y: event.clientY }, trigger });
                 }}
               >
                 <button aria-label={isCollapsed ? t("Expand") : t("Collapse")} className="icon-button icon-button-xs" onClick={() => {
@@ -815,7 +874,20 @@ export function Sidebar() {
                   }} type="button">
                   <IconChevron open={!isCollapsed} size={14} />
                 </button>
-                <button aria-current={selected ? "page" : undefined} className="ws-name" onClick={() => void selectWorkspace(workspace.id)} title={workspace.displayPath} type="button">
+                <button
+                  aria-current={selected ? "page" : undefined}
+                  className="ws-name"
+                  onClick={() => void selectWorkspace(workspace.id)}
+                  onKeyDown={(event) => {
+                    if (IS_REMOTE || (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10"))) return;
+                    event.preventDefault();
+                    const trigger = event.currentTarget;
+                    const { left, bottom } = trigger.getBoundingClientRect();
+                    setProjectMenu({ id: workspace.id, name: project, live: liveCount, at: { x: left, y: bottom }, trigger });
+                  }}
+                  title={workspace.displayPath}
+                  type="button"
+                >
                   <span className="ws-glyph">
                     <IconFolder size={14} />
                   </span>
@@ -1025,13 +1097,16 @@ export function Sidebar() {
         />
       )}
 
-      {projectMenu && (
+      {projectMenu && projectMenuIndex >= 0 && (
         <ProjectMenu
           at={projectMenu.at}
           onClose={() => setProjectMenu(null)}
+          onMoveDown={projectMenuIndex < projectGroups.length - 1 ? () => moveProject(projectMenuIndex + 1) : undefined}
+          onMoveUp={projectMenuIndex > 0 ? () => moveProject(projectMenuIndex - 1) : undefined}
           onRemove={() => setRemoving({ id: projectMenu.id, name: projectMenu.name, live: projectMenu.live })}
           onRenameFolder={() => setRenamingFolder(projectMenu.id)}
           onWipe={() => setWiping({ id: projectMenu.id, name: projectMenu.name })}
+          trigger={projectMenu.trigger}
           workspaceId={projectMenu.id}
         />
       )}
