@@ -40,6 +40,9 @@ beforeEach(() => {
     providerModels: { claude: [model("opus", ["low", "high"]), model("haiku")], codex: [model("gpt-test")] },
     sessionDefaults: {},
     workspaces: [],
+    teamPresets: [],
+    projectTeamPresetIds: {},
+    quickChats: [],
     view: { kind: "settings" },
   } as never);
 });
@@ -85,6 +88,29 @@ describe("Settings", () => {
     });
     expect(useStore.getState().sessionDefaults.claude).toEqual({ model: "haiku" });
     expect(calls.api.prefSet).toHaveBeenCalledWith("session_defaults", { claude: { model: "haiku" } });
+  });
+
+  it("saves a default team for the selected project and can return to a single agent", async () => {
+    calls.api.prefSet = vi.fn(async () => undefined);
+    useStore.setState({
+      view: { kind: "settings", tab: "integrations" },
+      workspaces: [{ id: "w1", displayPath: "/work/Studio" }, { id: "w2", displayPath: "/work/Lab" }],
+      teamPresets: [{ id: "p1", name: "Game team", orchestrator: { provider: "claude" }, combo: { workers: [] }, updatedAt: 0 }],
+    } as never);
+    render(<SettingsPanel />);
+    expect(screen.getByRole("button", { name: "Default team" }).textContent).toContain("Single agent");
+    fireEvent.click(screen.getByRole("button", { name: "Default team" }));
+    await act(async () => fireEvent.click(screen.getByRole("option", { name: "Game team" })));
+    expect(calls.api.prefSet).toHaveBeenLastCalledWith("projectTeamPresets", { w1: "p1" });
+    fireEvent.click(screen.getByRole("button", { name: "Project" }));
+    fireEvent.click(screen.getByRole("option", { name: "Lab" }));
+    expect(screen.getByRole("button", { name: "Default team" }).textContent).toContain("Single agent");
+    fireEvent.click(screen.getByRole("button", { name: "Project" }));
+    fireEvent.click(screen.getByRole("option", { name: "Studio" }));
+    expect(screen.getByRole("button", { name: "Default team" }).textContent).toContain("Game team");
+    fireEvent.click(screen.getByRole("button", { name: "Default team" }));
+    await act(async () => fireEvent.click(screen.getByRole("option", { name: "Single agent" })));
+    expect(calls.api.prefSet).toHaveBeenLastCalledWith("projectTeamPresets", {});
   });
 
   it("shows the alert types only while notifications are on", () => {

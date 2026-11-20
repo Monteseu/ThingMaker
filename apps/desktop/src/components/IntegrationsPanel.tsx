@@ -13,7 +13,7 @@ import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import type { ConfigFile, ConfigTarget, ContextSources, InstructionFileName, SkillEntry, SkillScope } from "@thingmaker/contracts";
 import { PROVIDER_LABELS } from "@thingmaker/contracts";
 import { api } from "../ipc";
-import { basenameOf, useStore } from "../store";
+import { basenameOf, projectTeamPreset, useStore } from "../store";
 import { t } from "../i18n";
 
 import { SkillImport } from "./SkillImport";
@@ -116,6 +116,10 @@ export function IntegrationsSettings() {
   const setError = useStore((s) => s.setError);
   const workspaces = useStore((s) => s.workspaces);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+  const teamPresets = useStore((s) => s.teamPresets);
+  const projectPresetId = useStore((s) => workspaceId ? projectTeamPreset(s, workspaceId)?.id : undefined);
+  const projectSelected = useStore((s) => s.workspaces.some((workspace) => workspace.id === workspaceId) && !s.quickChats.some((chat) => chat.workspaceId === workspaceId));
+  const setProjectTeamPreset = useStore((s) => s.setProjectTeamPreset);
   const [sources, setSources] = useState<ContextSources | null>(null);
   const [editor, setEditor] = useState<{ target: ConfigTarget; title: string } | null>(null);
   const [newSkill, setNewSkill] = useState<{ scope: SkillScope; name: string } | null>(null);
@@ -185,6 +189,17 @@ export function IntegrationsSettings() {
             }}
             placeholder={t("No projects yet")}
             value={workspaceId}
+          />
+        </SettingRow>
+        <SettingRow hint={t("Preselected when you start a new session in this project")} name={t("Default team")}>
+          <Select
+            choices={[{ value: "", label: t("Single agent") }, ...teamPresets.map((preset) => ({ value: preset.id, label: preset.name }))]}
+            disabled={!projectSelected}
+            label={t("Default team")}
+            onChange={(id) => {
+              if (workspaceId) void setProjectTeamPreset(workspaceId, id || null);
+            }}
+            value={projectPresetId ?? ""}
           />
         </SettingRow>
       </SettingGroup>

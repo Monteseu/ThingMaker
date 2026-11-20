@@ -61,6 +61,8 @@ import { copiesItself, forkBranch, forkTitle, type ForkPoint } from "./fork";
 const TEAM_PRESETS_KEY = "teamPresets";
 const HELPER_PRESETS_KEY = "helperPresets";
 const DEFAULT_PRESET_KEY = "defaultTeamPreset";
+const PROJECT_TEAM_PRESETS_KEY = "projectTeamPresets";
+let projectTeamWrite = Promise.resolve();
 import { t } from "./i18n";
 import { api } from "./ipc";
 import { notify, shouldNotify } from "./notifications";
@@ -274,6 +276,9 @@ type State = {
   helperPresets: HelperPreset[];
   /** The preset a new session starts with, when one is chosen. */
   defaultPresetId: string | null;
+  /** The saved team to use for each project's new sessions. */
+  projectTeamPresetIds: Record<string, string>;
+  setProjectTeamPreset: (workspaceId: string, presetId: string | null) => Promise<void>;
   drafts: Record<string, string>;
   /** The provider sign-in in progress, if any. */
   signIn: SignInRun | null;
@@ -774,6 +779,12 @@ export function readSessionDefaults(raw: unknown): SessionDefaults {
   return defaults;
 }
 
+/** Resolves the current preset, so edits take effect and deleted teams fall back to one agent. */
+export function projectTeamPreset(state: Pick<State, "projectTeamPresetIds" | "teamPresets" | "quickChats">, workspaceId: string): TeamPreset | undefined {
+  if (state.quickChats.some((chat) => chat.workspaceId === workspaceId)) return undefined;
+  return state.teamPresets.find((preset) => preset.id === state.projectTeamPresetIds[workspaceId]);
+}
+
 /** Where a new session starts when nobody asked for a provider: Claude when it can run, else the first that can. */
 export function startingProvider(providers: readonly ProviderInfo[] | null): Provider {
   const ready = (provider: Provider) => {
@@ -1051,6 +1062,7 @@ export const useStore = create<State>((set, get) => ({
   teamPresets: [],
   helperPresets: [],
   defaultPresetId: null,
+  projectTeamPresetIds: {},
   signIn: null,
   accounts: {},
   starting: null,
@@ -1084,7 +1096,7 @@ export const useStore = create<State>((set, get) => ({
 
   async bootstrap() {
     try {
-      const [profiles, workspaces] = await Promise.all([api.executionProfiles(), api.workspaceList()]);
+      const [profiles, workspaces] = await Promise.all([api.executionProfiles(), api.workspaceList(), get().loadTeamPresets()]);
       set({ profiles, workspaces });
       void get().loadSettings();
       void get().loadUiPrefs();
@@ -1126,7 +1138,6 @@ export const useStore = create<State>((set, get) => ({
       };
       readUsage();
       setInterval(readUsage, 5 * 60_000);
-      void get().loadTeamPresets();
       void get().loadQuickChats();
       void listen<JobView>(JOB_EVENT, (event) => get().noteJob(event.payload));
       void listen<UltraReview>(ULTRA_REVIEW_EVENT, (event) => get().noteUltraReview(event.payload));
@@ -2460,14 +2471,17 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async openSession(workspaceId, mode, provider, launch) {
+    if (mode.mode === "new" && provider === undefined && launch === undefined) {
+      const preset = projectTeamPreset(get(), workspaceId);
+      if (preset) return get().openSessionWithPreset(workspaceId, preset);
+    }
     // Which program wrote this session decides which one can resume it. The
     // record knows, and the native side reads it again on a resume: launching
     // one provider against another's session id would ask the wrong program
     // for a session it has never heard of.
     const recorded = mode.mode === "resume" ? (get().records[workspaceId] ?? []).find((record) => record.agentSessionId === mode.session_id)?.provider : undefined;
     const defaults = get().sessionDefaults;
-    // A new session starts with no team, on the default model: a team is
-    // chosen from the composer's "Set team", or a preset is opened directly.
+    // Without a project team or an explicit preset, new sessions use the default model.
     // A session the app is already running — a worker a delegation opened —
     // is shown, not resumed: a second process on the same session is refused
     // by the agent, and would compete with the first one if it were not.
@@ -2984,15 +2998,38 @@ export const useStore = create<State>((set, get) => ({
 
   async loadTeamPresets() {
     try {
-      const [presets, defaultId] = await Promise.all([api.prefGet<unknown>(TEAM_PRESETS_KEY), api.prefGet<string>(DEFAULT_PRESET_KEY)]);
-      const list = readPresets(presets);
-      set({ teamPresets: list, defaultPresetId: null });
-      // New sessions no longer start on a team: a default left from before
-      // is cleared, with the host's default workers it implied.
+      const previousProjectTeams = get().projectTeamPresetIds;
+      const [presets, defaultId, savedProjectTeams] = await Promise.all([
+        api.prefGet<unknown>(TEAM_PRESETS_KEY),
+        api.prefGet<string>(DEFAULT_PRESET_KEY),
+        api.prefGet<unknown>(PROJECT_TEAM_PRESETS_KEY).catch(() => undefined),
+      ]);
+      const projectTeams = savedProjectTeams && typeof savedProjectTeams === "object" && !Array.isArray(savedProjectTeams)
+        ? Object.fromEntries(Object.entries(savedProjectTeams).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
+        : {};
+      set((state) => ({
+        teamPresets: readPresets(presets),
+        defaultPresetId: null,
+        ...(savedProjectTeams !== undefined && state.projectTeamPresetIds === previousProjectTeams ? { projectTeamPresetIds: projectTeams } : {}),
+      }));
+      // Clear the older global default and the host's default workers it implied.
       if (typeof defaultId === "string" && defaultId) void get().setDefaultPreset(null);
     } catch {
       // No presets yet.
     }
+  },
+
+  setProjectTeamPreset(workspaceId, presetId) {
+    // Each write starts from the last saved map, including changes to other projects.
+    projectTeamWrite = projectTeamWrite.then(async () => {
+      const projectTeamPresetIds = { ...get().projectTeamPresetIds };
+      if (presetId === null) delete projectTeamPresetIds[workspaceId];
+      else if (get().teamPresets.some((preset) => preset.id === presetId)) projectTeamPresetIds[workspaceId] = presetId;
+      else return;
+      await api.prefSet(PROJECT_TEAM_PRESETS_KEY, projectTeamPresetIds);
+      set({ projectTeamPresetIds });
+    }).catch((error) => set({ error: asError(error) }));
+    return projectTeamWrite;
   },
 
   async saveTeamPreset(preset) {

@@ -52,6 +52,7 @@ beforeEach(() => {
     repoInfo: { w1: { head: "main", detached: false, ahead: 0, behind: 0 } },
     providers: [{ provider: "claude", resolved: {}, auth: { loggedIn: true } }],
     teamPresets: [preset],
+    projectTeamPresetIds: {},
     sessions: {},
     sessionDefaults: {},
     providerModels: {},
@@ -71,6 +72,34 @@ describe("a project's home", () => {
     fireEvent.change(input, { target: { value: "Add the reward ladder" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(openSession).toHaveBeenCalledWith("w1", { mode: "new" }, "claude", { message: "Add the reward ladder" });
+  });
+
+  it("preselects the project team and lets the composer start this session without it", () => {
+    const openSession = vi.fn(async () => undefined);
+    const openSessionWithPreset = vi.fn(async () => undefined);
+    useStore.setState({ openSession, openSessionWithPreset, projectTeamPresetIds: { w1: preset.id } } as never);
+    render(<WorkspaceView workspaceId="w1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Start session" }));
+    expect(openSessionWithPreset).toHaveBeenCalledWith("w1", preset, undefined);
+    fireEvent.click(screen.getByRole("button", { name: "Big Brain" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "No team" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start session" }));
+    expect(openSession).toHaveBeenCalledWith("w1", { mode: "new" }, "claude", {});
+    expect(useStore.getState().projectTeamPresetIds).toEqual({ w1: preset.id });
+  });
+
+  it("loads the saved project team for a default launch and falls back when the preset is missing", async () => {
+    useStore.setState({ sessionDefaults: { claude: { model: "haiku" } } });
+    const edited = { ...preset, orchestrator: { provider: "codex", model: "gpt-test", effort: "high" } };
+    calls.api.prefGet = vi.fn(async (key) => ({ teamPresets: [edited], projectTeamPresets: { w1: preset.id, w2: "removed" } })[key as "teamPresets" | "projectTeamPresets"]);
+    calls.api.sessionOpen = vi.fn(() => new Promise(() => undefined));
+    await useStore.getState().loadTeamPresets();
+    void useStore.getState().openSession("w1", { mode: "new" });
+    expect(calls.api.sessionOpen).toHaveBeenLastCalledWith({ workspaceId: "w1", mode: { mode: "new" }, provider: "codex", model: "gpt-test", reasoningEffort: "high", combo: preset.combo });
+    void useStore.getState().openSession("w1", { mode: "new" }, "claude");
+    expect(calls.api.sessionOpen).toHaveBeenLastCalledWith({ workspaceId: "w1", mode: { mode: "new" }, provider: "claude", model: "haiku" });
+    void useStore.getState().openSession("w2", { mode: "new" });
+    expect(calls.api.sessionOpen).toHaveBeenLastCalledWith({ workspaceId: "w2", mode: { mode: "new" }, provider: "claude", model: "haiku" });
   });
 
   it("starts with the chosen team", () => {

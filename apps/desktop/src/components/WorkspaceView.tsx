@@ -6,7 +6,7 @@ import { VoiceInput } from "./VoiceInput";
  */
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { PROVIDERS, PROVIDER_LABELS, parseLocalModel, type Provider, type SessionRecord, type TeamPreset } from "@thingmaker/contracts";
-import { startingProvider, useStore } from "../store";
+import { projectTeamPreset, startingProvider, useStore } from "../store";
 import { api } from "../ipc";
 import { OutboxPanel } from "./OutboxPanel";
 import { BrowserLauncher } from "./WebView";
@@ -222,7 +222,10 @@ export function StartBox({
   const [text, setText] = useState("");
   const [provider, setProvider] = useState<Provider | null>(null);
   const [model, setModel] = useState<string | null>(null);
-  const [preset, setPreset] = useState<TeamPreset | null>(initialPreset ?? null);
+  const projectPreset = useStore((s) => quick ? undefined : projectTeamPreset(s, workspaceId));
+  const [presetChoice, setPresetChoice] = useState<TeamPreset | null>();
+  const defaultPreset = initialPreset === undefined ? projectPreset ?? null : initialPreset;
+  const preset = presetChoice === undefined ? defaultPreset : presetChoice;
   const input = useRef<HTMLTextAreaElement>(null);
   const chosen = provider ?? startingProvider(providers);
   const selectedModel = model ?? defaults[chosen]?.model;
@@ -267,7 +270,7 @@ export function StartBox({
       {localAgent && selectedModel && <details><summary>{t("Skills and connections")}</summary>
         <MemberResources initialWorkspace={workspaceId} worker={{ name, provider: "local", model: selectedModel, capabilities: [], ...(resources ? { resources } : {}) }} onChange={(worker) => { setModel(worker.model ?? null); setResources(worker.resources); }} />
       </details>}
-      <VoiceInput key={workspaceId} target={workspaceId} draft={text} input={input} localOnly={chosen === "local"} onChange={setText} disabled={!trusted} />
+      <VoiceInput key={workspaceId} target={workspaceId} draft={text} input={input} localOnly={(preset?.orchestrator.provider ?? chosen) === "local"} onChange={setText} disabled={!trusted} />
       <div className="home-start-bar">
         {preset ? (
           <span className="model-chip home-chip-static" title={t("The team decides who leads")}>
@@ -284,7 +287,7 @@ export function StartBox({
             provider={chosen}
           />
         )}
-        {quick ? <span className="composer-spacer" /> : <TeamChoice onEdit={() => setView({ kind: "teams" })} onPick={setPreset} preset={preset} presets={presets} />}
+        {quick ? <span className="composer-spacer" /> : <TeamChoice onEdit={() => setView({ kind: "teams" })} onPick={setPresetChoice} preset={preset} presets={presets} />}
         {quick && <TemporaryChatButton workspaceId={workspaceId} />}
         <button aria-label={t("Start session")} className="send-button send-round home-start-send" disabled={!canStart} onClick={start} title={t("Start session")} type="button">
           <IconArrowUp size={14} />
