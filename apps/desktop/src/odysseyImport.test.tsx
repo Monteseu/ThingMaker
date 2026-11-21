@@ -7,9 +7,6 @@
  * parsed here, nothing is created until the button is pressed, and nothing
  * runs until the goal is started.
  */
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OdysseyView, Snapshot } from "@thingmaker/contracts";
@@ -86,6 +83,7 @@ import * as webview from "@tauri-apps/api/webview";
 import { EMPTY_SESSION_USAGE, useStore, type LiveSession } from "./store";
 import { emptyProjection } from "./projection";
 import { OdysseyPane } from "./components/OdysseyPane";
+import { SessionPanel } from "./components/SessionPanel";
 
 const calls = (core as unknown as { __calls: { command: string; args: Record<string, unknown> }[] }).__calls;
 const handlers = (webview as unknown as { __handlers: DropHandler[] }).__handlers;
@@ -222,12 +220,14 @@ describe("dropping a Markdown plan on the goal form", () => {
     expect(commands()).not.toContain("odyssey_create");
   });
 
-  it("owns the drop while it is showing, so the composer does not also take it", () => {
-    // A drop listener is webview-wide; the transcript's own handler bails on
-    // the Big Thing tab, and this is the assertion that keeps that true.
-    const here = dirname(fileURLToPath(import.meta.url));
-    const panel = readFileSync(resolve(here, "components/SessionPanel.tsx"), "utf8");
-    expect(panel).toContain('state.sessionTab === "odyssey"');
+  it("owns the drop while it is showing, so the composer does not also take it", async () => {
+    globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
+    useStore.setState({ sessionTab: "odyssey", view: { kind: "session", sessionId: SESSION }, attachments: {} });
+    render(<SessionPanel sessionId={SESSION} />);
+    await drop(["/plans/onboarding.md"]);
+    expect(commands()).toContain("odyssey_read_plan");
+    expect(commands()).not.toContain("attachment_add_paths");
+    expect(useStore.getState().attachments[SESSION]).toBeUndefined();
   });
 
   it("refuses a file that is not a document, and does not try to read it", async () => {

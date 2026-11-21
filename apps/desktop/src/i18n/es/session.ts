@@ -1,5 +1,8 @@
 /** Spanish for the session strings, keyed by their English text. */
 export const session: Record<string, string> = {
+  "Reading files…": "Leyendo archivos…",
+  "Drop files to attach them": "Suelta los archivos para adjuntarlos",
+  "Preview extracted text": "Ver el texto extraído",
   "Panel view": "Vista del panel",
   "Crew": "Equipo",
   "Screen": "Pantalla",
@@ -505,7 +508,9 @@ export const session: Record<string, string> = {
   "Enter to send | Shift + Enter for newline": "Enter para enviar | Shift + Enter para salto de línea",
   "Shift + Enter to send | Enter for newline": "Shift + Enter para enviar | Enter para salto de línea",
   "Attach media": "Adjuntar multimedia",
-  "Attach PNG, JPEG, GIF, WebP, WAV or MP3 (8 files, 10 MiB each, 20 MiB total). Type @ to mention a file.": "Adjuntar PNG, JPEG, GIF, WebP, WAV o MP3 (8 archivos, 10 MiB cada uno, 20 MiB en total). Escribe @ para mencionar un archivo.",
+  "Attach files": "Adjuntar archivos",
+  "Extraction warning": "Aviso de extracción",
+  "Attach images, audio, Markdown, JSON, TXT, DOCX or PDF (8 files, 10 MiB each, 20 MiB total). Type @ to mention a file.": "Adjuntar imágenes, audio, Markdown, JSON, TXT, DOCX o PDF (8 archivos, 10 MiB cada uno, 20 MiB en total). Escribe @ para mencionar un archivo.",
   "the account's default model": "el modelo predeterminado de la cuenta",
   "Cancel turn": "Cancelar turno",
   "Cancel the current turn": "Cancelar el turno actual",

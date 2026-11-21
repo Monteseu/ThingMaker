@@ -741,6 +741,9 @@ async fn prompt_blocks(
         blocks.push(json!({ "type": "text", "text": text }));
     }
     if !attachment_ids.is_empty() {
+        if attachment_ids.len() > thingmaker_supervisor::attachments::MAX_ATTACHMENTS {
+            return Err(DesktopError::limit_exceeded("at most 8 attachments per prompt"));
+        }
         let capabilities = actor.snapshot().await?.capabilities;
         let (prompt_image, prompt_audio) = capabilities
             .as_ref()
@@ -748,14 +751,16 @@ async fn prompt_blocks(
             .unwrap_or((false, false));
         let store = thingmaker_supervisor::attachments::AttachmentStore::new(&state.data_dir);
         let mut snapshots = Vec::new();
-        let mut media = Vec::new();
+        let mut contents = Vec::new();
         for id in attachment_ids {
             let (snapshot, bytes) = store.load(id)?;
-            media.push(thingmaker_supervisor::attachments::media_block(&snapshot, &bytes, prompt_image, prompt_audio)?);
+            contents.push(bytes);
             snapshots.push(snapshot);
         }
         thingmaker_supervisor::attachments::check_envelope(&snapshots)?;
-        blocks.extend(media);
+        for (snapshot, bytes) in snapshots.iter().zip(&contents) {
+            blocks.push(thingmaker_supervisor::attachments::media_block(snapshot, bytes, prompt_image, prompt_audio)?);
+        }
     }
     Ok(blocks)
 }

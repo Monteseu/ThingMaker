@@ -1468,7 +1468,7 @@ export type ContextBundle = { id: string; name: string; instructions: string; re
 // Attachments and mentions (UX-06, UX-07)
 // ---------------------------------------------------------------------------
 
-export type MediaKind = "image" | "audio";
+export type MediaKind = "image" | "audio" | "document";
 export type AttachmentSnapshot = {
   id: string;
   name: string;
@@ -1479,6 +1479,7 @@ export type AttachmentSnapshot = {
   height?: number;
   blobPath: string;
   sourcePath?: string;
+  document?: { text: string; warnings: string[] };
 };
 export type AttachmentPreview = { id: string; mime: string; dataBase64: string };
 export type MentionMode = { mode: "path_reference" } | { mode: "copied_content"; startLine?: number; endLine?: number };

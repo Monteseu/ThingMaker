@@ -2921,6 +2921,49 @@ body.resizing-sidebar * {
   padding: 3px 8px 3px 3px;
 }
 
+.attachment-chip-document {
+  max-width: 100%;
+  flex-wrap: wrap;
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+
+.attachment-chip-document > .document-warnings {
+  flex-basis: 100%;
+  order: 1;
+}
+
+.attachment-chip-document > button {
+  margin-left: auto;
+}
+
+.document-warnings {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.chat-document {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  margin: 8px 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+
+.chat-document summary {
+  cursor: pointer;
+}
+
+.chat-document .text {
+  max-height: 360px;
+  overflow: auto;
+}
+
 .mention-popover {
   position: absolute;
   left: 4px;

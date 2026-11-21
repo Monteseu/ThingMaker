@@ -450,8 +450,8 @@ class MainActivity : Activity() {
                     Intent(Intent.ACTION_OPEN_DOCUMENT)
                         .addCategory(Intent.CATEGORY_OPENABLE)
                         .setType("*/*")
-                        // What the computer attaches: images and audio.
-                        .putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "audio/*"))
+                        // File types supported by chat attachments.
+                        .putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "audio/*", "text/plain", "text/markdown", "application/json", "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
                         .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true),
                     PICK,
                 )

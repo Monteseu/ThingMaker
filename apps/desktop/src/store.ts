@@ -468,7 +468,7 @@ type State = {
   /** Makes a preset (or none) what a new session starts with. */
   setDefaultPreset: (id: string | null) => Promise<void>;
   /** Starts a session led by the preset's orchestrator, with its workers. */
-  openSessionWithPreset: (workspaceId: string, preset: TeamPreset, message?: string) => Promise<void>;
+  openSessionWithPreset: (workspaceId: string, preset: TeamPreset, message?: string, attachments?: AttachmentSnapshot[]) => Promise<void>;
   /**
    * Applies a preset to a live session. Workers change at once; the
    * orchestrator's model and effort are set through its own options. A
@@ -746,7 +746,7 @@ function launchDefaults(defaults: SessionDefaults, provider: Provider): { model?
  * override the remembered ones, a team, and a first message that goes out as
  * soon as the agent is ready.
  */
-export type NewSessionLaunch = { resources?: WorkerSlot["resources"]; model?: string; reasoningEffort?: string; combo?: Combo; message?: string };
+export type NewSessionLaunch = { resources?: WorkerSlot["resources"]; model?: string; reasoningEffort?: string; combo?: Combo; message?: string; attachments?: AttachmentSnapshot[] };
 
 /** The adapter's alias for its current Opus. */
 const CLAUDE_DEFAULT_MODEL = "opus";
@@ -2487,21 +2487,25 @@ export const useStore = create<State>((set, get) => ({
       workspaceId,
       provider: chosen,
       draft: message,
-      queued: !!message,
+      queued: !!message || !!launch?.attachments?.length,
       ...(mode.mode === "resume" ? { resuming: true, ...(title ? { title } : {}) } : {}),
     };
     set({ starting, view: { kind: "starting" }, error: null, lockedResume: null });
+    if (launch?.attachments?.length) get().addAttachments(starting.id, launch.attachments);
     // The chat gives way to the session once it is attached, unless the
     // person went elsewhere meanwhile; what was written carries over.
     const settle = (handleId: string) => {
       const waited = get().starting;
       if (waited?.id !== starting.id) return;
       if (get().view.kind === "starting") get().selectSession(handleId);
-      set({ starting: null });
+      const files = get().attachments[starting.id] ?? [];
+      if (files.length) get().addAttachments(handleId, files);
+      const { [starting.id]: _transferred, ...attachments } = get().attachments;
+      set({ starting: null, attachments });
       if (waited.draft) {
         get().setDraft(handleId, waited.draft);
-        if (waited.queued) void get().send(handleId);
       }
+      if (waited.queued && (waited.draft.trim() || files.length)) void get().send(handleId);
     };
     if (mode.mode === "resume") {
       try {
@@ -3085,7 +3089,7 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  async openSessionWithPreset(workspaceId, preset, message) {
+  async openSessionWithPreset(workspaceId, preset, message, attachments) {
     const { provider, model, effort, resources } = preset.orchestrator;
     await get().openSession(workspaceId, { mode: "new" }, provider, {
       ...(model ? { model } : {}),
@@ -3093,6 +3097,7 @@ export const useStore = create<State>((set, get) => ({
       combo: preset.combo,
       ...(resources ? { resources } : {}),
       ...(message ? { message } : {}),
+      ...(attachments?.length ? { attachments } : {}),
     });
   },
 
@@ -3207,7 +3212,10 @@ export const useStore = create<State>((set, get) => ({
       // The composer's own state rides along, so taking the prompt back out
       // to edit restores its chips too, from this window or the phone.
       const brief = get().sideBrief[sessionId];
-      await api.sessionEnqueue(session.handle, requestId, brief ? `${brief}${HANDOFF_SPLIT}${draft}` : draft, attachments.map((a) => a.id), mentions, { attachments, mentions });
+      const restoreAttachments = attachments.map((attachment) => attachment.document
+        ? { ...attachment, document: { ...attachment.document, text: "" } }
+        : attachment);
+      await api.sessionEnqueue(session.handle, requestId, brief ? `${brief}${HANDOFF_SPLIT}${draft}` : draft, attachments.map((a) => a.id), mentions, { attachments: restoreAttachments, mentions });
       if (brief) {
         const { [sessionId]: _sent, ...rest } = get().sideBrief;
         set({ sideBrief: rest });

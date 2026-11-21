@@ -295,7 +295,7 @@ pub async fn dispatch(app: &AppHandle, command: &str, args: Value) -> Result<Val
         "workspace_search_files" => sync_call!(app, args, attachments::workspace_search_files, "request"),
         "review_diff" => async_call!(app, args, review::review_diff, "request"),
         "review_file_versions" => sync_call!(app, args, git::review_file_versions, "request"),
-        "attachment_add_bytes" => sync_call!(app, args, attachments::attachment_add_bytes, "request"),
+        "attachment_add_bytes" => async_call!(app, args, attachments::attachment_add_bytes, "request"),
         "attachment_preview" => sync_call!(app, args, attachments::attachment_preview, "request"),
         _ => refused(DesktopError::untrusted(format!("{command} is not available from the phone"))),
     }

@@ -112,3 +112,29 @@ it("restores an unsuccessful enqueue", async () => {
   expect(useStore.getState().attachments.s).toEqual([attachment]);
   expect(useStore.getState().sessions.s!.pendingPrompt).toBeUndefined();
 });
+
+
+it("sends and queues a large document by id, keeping compact warnings for editing", async () => {
+  const document: AttachmentSnapshot = { id: "doc", name: "report.pdf", mime: "application/pdf", kind: "document", bytes: 200000, blobPath: "doc", document: { text: "x".repeat(128 * 1024), warnings: ["Text truncated"] } };
+  const oldAudio: AttachmentSnapshot = { id: "audio", name: "voice.mp3", mime: "audio/mpeg", kind: "audio", bytes: 42, blobPath: "audio" };
+  useStore.setState({ attachments: { s: [document, oldAudio] } });
+  const delivery = deferred<Awaited<ReturnType<typeof api.sessionSubmit>>>();
+  vi.mocked(api.sessionSubmit).mockReturnValue(delivery.promise);
+  render(<PendingPrompt sessionId="s" />);
+  let sending!: Promise<void>;
+  act(() => { sending = useStore.getState().send("s"); });
+  expect(screen.getByText("report.pdf", { exact: false }).textContent).toContain("Text truncated");
+  expect(api.sessionSubmit).toHaveBeenCalledWith(handle, expect.any(String), "Do the work", ["doc", "audio"], [mention]);
+  await act(async () => { delivery.reject(new Error("offline")); await sending; });
+  vi.mocked(api.sessionEnqueue).mockResolvedValue({} as Awaited<ReturnType<typeof api.sessionEnqueue>>);
+  await act(async () => { await useStore.getState().enqueue("s"); });
+  const args = vi.mocked(api.sessionEnqueue).mock.calls[0]!;
+  expect(args[3]).toEqual(["doc", "audio"]);
+  const restore = args[5]!;
+  expect(JSON.stringify(restore).length).toBeLessThan(16 * 1024);
+  expect(restore.attachments).toEqual([{ ...document, document: { text: "", warnings: ["Text truncated"] } }, oldAudio]);
+  const item = { id: "q", text: "Do the work", extras: 2, restore };
+  vi.mocked(api.sessionQueue).mockResolvedValue({ removed: item } as Awaited<ReturnType<typeof api.sessionQueue>>);
+  await act(async () => { await useStore.getState().editQueued("s", "q"); });
+  expect(useStore.getState().attachments.s).toEqual(restore.attachments);
+});

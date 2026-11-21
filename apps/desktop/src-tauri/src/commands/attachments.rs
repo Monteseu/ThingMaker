@@ -19,8 +19,14 @@ fn store(state: &AppState) -> AttachmentStore {
 
 fn record(state: &AppState, snapshot: &AttachmentSnapshot) -> CommandResult<()> {
     let relative = format!("attachments/{}", snapshot.id);
+    let hash = if snapshot.kind == thingmaker_supervisor::attachments::MediaKind::Document {
+        let bytes = store(state).read(&snapshot.id)?;
+        thingmaker_supervisor::storage::content_hash(&bytes)
+    } else {
+        snapshot.id.clone()
+    };
     state
-        .with_storage(|s| s.attachment_upsert(&snapshot.id, &snapshot.id, &relative, &snapshot.mime, snapshot.bytes as i64))
+        .with_storage(|s| s.attachment_upsert(&snapshot.id, &hash, &relative, &snapshot.mime, snapshot.bytes as i64))
         .map_err(storage_error)
 }
 
@@ -68,19 +74,24 @@ pub async fn attachment_pick(app: AppHandle, state: State<'_, AppState>) -> Comm
     let picked = tauri::async_runtime::spawn_blocking(move || {
         app.dialog()
             .file()
+            .add_filter("Supported files", &["png", "jpg", "jpeg", "gif", "webp", "wav", "mp3", "md", "json", "txt", "docx", "pdf"])
+            .add_filter("Documents", &["md", "json", "txt", "docx", "pdf"])
             .add_filter("Images and audio", &["png", "jpg", "jpeg", "gif", "webp", "wav", "mp3"])
             .blocking_pick_files()
     })
     .await
     .map_err(|e| DesktopError::io(e.to_string()))?;
     let Some(paths) = picked else { return Ok(Vec::new()) };
+    if paths.len() > thingmaker_supervisor::attachments::MAX_ATTACHMENTS {
+        return Err(DesktopError::limit_exceeded("at most 8 files at once"));
+    }
     let store = store(&state);
-    let mut out = Vec::new();
-    for path in paths {
+    let out = tauri::async_runtime::spawn_blocking(move || paths.into_iter().map(|path| {
         let path = path.into_path().map_err(|e| DesktopError::io(e.to_string()))?;
-        let snapshot = store.add_path(&path)?;
+        store.add_path(&path)
+    }).collect::<CommandResult<Vec<_>>>()).await.map_err(|e| DesktopError::io(e.to_string()))??;
+    for snapshot in &out {
         record(&state, &snapshot)?;
-        out.push(snapshot);
     }
     Ok(out)
 }
@@ -93,16 +104,16 @@ pub struct AttachPathsRequest {
 
 /// Drag-and-drop paths from the OS. Each is read once and snapshotted.
 #[tauri::command]
-pub fn attachment_add_paths(request: AttachPathsRequest, state: State<'_, AppState>) -> CommandResult<Vec<AttachmentSnapshot>> {
+pub async fn attachment_add_paths(request: AttachPathsRequest, state: State<'_, AppState>) -> CommandResult<Vec<AttachmentSnapshot>> {
     if request.paths.len() > 8 {
         return Err(DesktopError::limit_exceeded("at most 8 files at once"));
     }
     let store = store(&state);
-    let mut out = Vec::new();
-    for path in request.paths {
-        let snapshot = store.add_path(&PathBuf::from(path))?;
+    let out = tauri::async_runtime::spawn_blocking(move || request.paths.into_iter()
+        .map(|path| store.add_path(&PathBuf::from(path))).collect::<CommandResult<Vec<_>>>())
+        .await.map_err(|e| DesktopError::io(e.to_string()))??;
+    for snapshot in &out {
         record(&state, &snapshot)?;
-        out.push(snapshot);
     }
     Ok(out)
 }
@@ -146,12 +157,15 @@ fn decode_base64(input: &str) -> Result<Vec<u8>, DesktopError> {
 }
 
 #[tauri::command]
-pub fn attachment_add_bytes(request: AttachBytesRequest, state: State<'_, AppState>) -> CommandResult<AttachmentSnapshot> {
+pub async fn attachment_add_bytes(request: AttachBytesRequest, state: State<'_, AppState>) -> CommandResult<AttachmentSnapshot> {
     if request.data_base64.len() as u64 > MAX_ATTACHMENT_BYTES * 4 / 3 + 4 {
         return Err(DesktopError::limit_exceeded("attachment exceeds 10 MiB"));
     }
-    let bytes = decode_base64(&request.data_base64)?;
-    let snapshot = store(&state).add_bytes(&request.name, &bytes, None)?;
+    let store = store(&state);
+    let snapshot = tauri::async_runtime::spawn_blocking(move || {
+        let bytes = decode_base64(&request.data_base64)?;
+        store.add_bytes(&request.name, &bytes, None)
+    }).await.map_err(|e| DesktopError::io(e.to_string()))??;
     record(&state, &snapshot)?;
     Ok(snapshot)
 }

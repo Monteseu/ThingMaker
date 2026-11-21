@@ -59,3 +59,18 @@ it("never sends a Local Models session's messages to a cloud provider for a sugg
   await act(() => vi.advanceTimersByTimeAsync(350));
   expect(suggest).not.toHaveBeenCalled();
 });
+
+
+it("shows document extraction warnings in the composer without treating documents as audio", () => {
+  const handle = { id: "document-session", attachmentGeneration: "1" };
+  const projection = emptyProjection();
+  projection.process = "ready";
+  projection.attachment = "attached";
+  const session: LiveSession = { handle, workspaceId: "w", snapshot: { handle, provider: "claude" } as Snapshot, projection, inFlightRequestId: null, steerInFlight: false, attention: "none", openedAt: 0, turnStartedAt: null, lastEventAt: null, usage: EMPTY_SESSION_USAGE };
+  useStore.setState({ sessions: { [handle.id]: session }, drafts: {}, mentions: {}, sessionTab: "transcript", attachments: { [handle.id]: [{ id: "doc", name: "report.pdf", mime: "application/pdf", kind: "document", bytes: 10, blobPath: "doc", document: { text: "text", warnings: ["Text truncated"] } }, { id: "old", name: "old.mp3", mime: "audio/mpeg", kind: "audio", bytes: 10, blobPath: "old" }] } });
+  render(<SessionPanel sessionId={handle.id} />);
+  expect(screen.getByText("report.pdf", { exact: false })).toBeTruthy();
+  expect(screen.getByText("Extraction warning: Text truncated")).toBeTruthy();
+  expect(screen.getAllByText("runtime did not advertise audio prompts")).toHaveLength(1);
+  expect(screen.getByRole("button", { name: "remove attachment report.pdf" })).toBeTruthy();
+});

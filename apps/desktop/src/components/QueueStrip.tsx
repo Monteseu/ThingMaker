@@ -1,3 +1,4 @@
+import { DocumentWarnings } from "./DocumentWarnings";
 /**
  * Prompts waiting for the running turn: the session actor's queue.
  *
@@ -48,6 +49,9 @@ export function QueueStrip({ sessionId, queue, active, canSteer }: { sessionId: 
                 +{item.extras}
               </span>
             )}
+            {item.restore?.attachments?.filter((attachment) => attachment.kind === "document").map((attachment) => (
+              <span className="small" key={attachment.id}>{attachment.name} <DocumentWarnings attachment={attachment} /></span>
+            ))}
             <span className="queue-actions">
               <button aria-label={t("Move up")} className="link small" disabled={index === 0} onClick={() => void queueOp(sessionId, { op: "move", id: item.id, index: index - 1 })} type="button">
                 ↑

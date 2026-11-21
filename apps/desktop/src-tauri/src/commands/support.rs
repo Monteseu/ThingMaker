@@ -239,6 +239,12 @@ pub fn cleanup_run(request: CleanupRunRequest, state: State<'_, AppState>) -> Co
         if candidate.kind == "attachment"
             && let Some(id) = path.file_name().map(|n| n.to_string_lossy().into_owned())
         {
+            let metadata = path.with_file_name(format!("{id}.document.json"));
+            match std::fs::remove_file(&metadata) {
+                Ok(()) => {},
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
+                Err(error) => return Err(DesktopError::io(error.to_string())),
+            }
             let _ = state.with_storage(|s| s.attachment_delete(&id));
         }
         removed.push(candidate);

@@ -11,6 +11,10 @@ import { PROVIDER_LABELS } from "@thingmaker/contracts";
 import { useStore } from "../store";
 import { ProviderMark } from "./ProviderMark";
 import { t } from "../i18n";
+import type { AttachmentSnapshot } from "@thingmaker/contracts";
+import { AttachmentChips } from "./AttachmentChips";
+
+const EMPTY_ATTACHMENTS: AttachmentSnapshot[] = [];
 
 export function StartingPanel() {
   const starting = useStore((s) => s.starting);
@@ -18,6 +22,8 @@ export function StartingPanel() {
   const workspace = useStore((s) => s.workspaces.find((entry) => entry.id === s.starting?.workspaceId));
   const enterSends = useStore((s) => s.uiPrefs.enterSends);
   const input = useRef<HTMLTextAreaElement>(null);
+  const attachments = useStore((state) => starting ? state.attachments[starting.id] ?? EMPTY_ATTACHMENTS : EMPTY_ATTACHMENTS);
+  const removeAttachment = useStore((state) => state.removeAttachment);
 
   useEffect(() => {
     input.current?.focus();
@@ -27,7 +33,7 @@ export function StartingPanel() {
   const provider = PROVIDER_LABELS[starting.provider];
   const heading = starting.resuming ? starting.title || t("Conversation") : t("New session");
   const queue = () => {
-    if (starting.draft.trim()) setStartingDraft(starting.draft, true);
+    if (starting.draft.trim() || attachments.length) setStartingDraft(starting.draft, true);
   };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
@@ -64,6 +70,7 @@ export function StartingPanel() {
         )}
       </div>
       <footer className="composer">
+        <AttachmentChips files={attachments} onRemove={(id) => removeAttachment(starting.id, id)} />
         <div className="composer-wrap">
           <textarea
             aria-label={t("Prompt")}
@@ -71,6 +78,9 @@ export function StartingPanel() {
             disabled={starting.queued}
             onChange={(event) => setStartingDraft(event.target.value, false)}
             onKeyDown={onKeyDown}
+            onDrop={(event) => {
+              if (Array.from(event.dataTransfer.types ?? []).some((type) => type === "Files" || type === "text/uri-list")) event.preventDefault();
+            }}
             placeholder={t("Enter to send | Shift + Enter for newline")}
             ref={input}
             value={starting.queued ? "" : starting.draft}

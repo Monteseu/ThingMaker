@@ -1,3 +1,4 @@
+import { DocumentWarnings } from "./DocumentWarnings";
 import { t } from "../i18n";
 import { useStore } from "../store";
 
@@ -13,7 +14,7 @@ export function PendingPrompt({ sessionId }: { sessionId: string }) {
     <article aria-busy={!prompt.accepted} className="card card-user">
       <header className="small muted"><span role="status">{t(prompt.accepted ? (prompt.queued ? "Queued" : "Sent") : "Sending…")}</span></header>
       {prompt.text && <div style={{ whiteSpace: "pre-wrap" }}>{prompt.text}</div>}
-      {prompt.attachments.map((attachment) => <div className="small muted" key={attachment.id}>{attachment.name}</div>)}
+      {prompt.attachments.map((attachment) => <div className="small muted" key={attachment.id}>{attachment.name}<DocumentWarnings attachment={attachment} /></div>)}
       {prompt.mentions.map((mention, index) => <div className="small muted" key={index}>@{mention.relativePath}</div>)}
     </article>
   );

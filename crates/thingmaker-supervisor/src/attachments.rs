@@ -1,28 +1,33 @@
 //! Prompt attachments (UX-06, UX-07).
 //!
-//! Baseline direct media: PNG, JPEG, GIF, WebP, WAV and MP3, at most eight
+//! Direct media and extracted MD, JSON, TXT, DOCX and PDF documents, at most eight
 //! per prompt, 10 MiB each and 20 MiB total, further restricted by the
 //! negotiated prompt capabilities. Content is sniffed natively (extension and
 //! declared type are not trusted), snapshotted into private storage before
 //! send, and addressed by content hash so a later change to the source file
 //! can never silently replace what was sent.
 
-use std::path::{Path, PathBuf};
+use std::{io::{Read, Write}, path::{Path, PathBuf}};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::DesktopError;
+use crate::documents::{DocumentExtraction, extract_document};
 
 pub const MAX_ATTACHMENTS: usize = 8;
 pub const MAX_ATTACHMENT_BYTES: u64 = 10 * 1024 * 1024;
 pub const MAX_TOTAL_BYTES: u64 = 20 * 1024 * 1024;
+/// Bound the combined document context as well as each individual extraction.
+pub const MAX_DOCUMENT_PROMPT_BYTES: usize = 256 * 1024;
+const MAX_DOCUMENT_METADATA_BYTES: usize = crate::documents::MAX_DOCUMENT_TEXT_BYTES * 6 + 8192;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MediaKind {
     Image,
     Audio,
+    Document,
 }
 
 /// Sniffs a supported media type from leading bytes. Returns `None` for
@@ -104,7 +109,8 @@ pub const MAX_IMAGE_PIXELS: u64 = 50_000_000;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AttachmentSnapshot {
-    /// BLAKE3 of the bytes; also the storage id.
+    /// BLAKE3 identity. Documents include their name and MIME type so each
+    /// attachment keeps its own attribution when files have identical bytes.
     pub id: String,
     pub name: String,
     pub mime: String,
@@ -117,6 +123,59 @@ pub struct AttachmentSnapshot {
     pub blob_path: PathBuf,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_path: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document: Option<DocumentExtraction>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct StoredDocument {
+    name: String,
+    mime: String,
+    document: DocumentExtraction,
+}
+
+fn document_mime(name: &str) -> Option<&'static str> {
+    match Path::new(name).extension()?.to_str()?.to_ascii_lowercase().as_str() {
+        "md" => Some("text/markdown"),
+        "txt" => Some("text/plain"),
+        "json" => Some("application/json"),
+        "pdf" => Some("application/pdf"),
+        "docx" => Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+        _ => None,
+    }
+}
+
+fn document_id(name: &str, mime: &str, bytes: &[u8]) -> String {
+    let mut hash = blake3::Hasher::new();
+    hash.update(b"thingmaker-document-v1\0");
+    hash.update(&(name.len() as u64).to_le_bytes());
+    hash.update(name.as_bytes());
+    hash.update(&(mime.len() as u64).to_le_bytes());
+    hash.update(mime.as_bytes());
+    hash.update(bytes);
+    hash.finalize().to_hex().to_string()
+}
+
+/// Publish complete snapshots atomically, including repairs after a failed read.
+/// Concurrent writes to the same content identity carry the same source bytes.
+fn store_atomic(path: &Path, bytes: &[u8]) -> Result<(), DesktopError> {
+    let parent = path.parent().ok_or_else(|| DesktopError::io("attachment directory missing"))?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent).map_err(|e| DesktopError::io(e.to_string()))?;
+    temporary.write_all(bytes).map_err(|e| DesktopError::io(e.to_string()))?;
+    temporary.persist(path).map_err(|error| DesktopError::io(error.error.to_string()))?;
+    Ok(())
+}
+
+fn checked_dimensions(kind: MediaKind, bytes: &[u8], mime: &str) -> Result<(Option<u32>, Option<u32>), DesktopError> {
+    if kind != MediaKind::Image {
+        return Ok((None, None));
+    }
+    let (width, height) = image_dimensions(bytes, mime)
+        .ok_or_else(|| DesktopError::io("image header could not be decoded"))?;
+    if u64::from(width) * u64::from(height) > MAX_IMAGE_PIXELS || width == 0 || height == 0 {
+        return Err(DesktopError::limit_exceeded("image dimensions are outside the accepted range"));
+    }
+    Ok((Some(width), Some(height)))
 }
 
 pub struct AttachmentStore {
@@ -143,31 +202,33 @@ impl AttachmentStore {
         if bytes.len() as u64 > MAX_ATTACHMENT_BYTES {
             return Err(DesktopError::limit_exceeded(format!("attachment exceeds {} MiB", MAX_ATTACHMENT_BYTES / 1024 / 1024)));
         }
-        let (kind, mime) = sniff_media(bytes).ok_or_else(|| {
-            DesktopError::unsupported("only PNG, JPEG, GIF, WebP, WAV and MP3 can be attached directly; other files can be mentioned as references")
-        })?;
-        let (width, height) = match kind {
-            MediaKind::Image => {
-                let dims = image_dimensions(bytes, mime).ok_or_else(|| DesktopError::io("image header could not be decoded"))?;
-                if u64::from(dims.0) * u64::from(dims.1) > MAX_IMAGE_PIXELS || dims.0 == 0 || dims.1 == 0 {
-                    return Err(DesktopError::limit_exceeded("image dimensions are outside the accepted range"));
-                }
-                (Some(dims.0), Some(dims.1))
+        let (kind, mime, document) = match document_mime(name) {
+            Some(mime) => (MediaKind::Document, mime, Some(extract_document(name, bytes)?)),
+            None => {
+                let (kind, mime) = sniff_media(bytes).ok_or_else(|| {
+                    DesktopError::unsupported("supported attachments: PNG, JPEG, GIF, WebP, WAV, MP3, MD, JSON, TXT, DOCX and PDF")
+                })?;
+                (kind, mime, None)
             }
-            MediaKind::Audio => (None, None),
         };
-        let id = crate::storage::content_hash(bytes);
+        let (width, height) = checked_dimensions(kind, bytes, mime)?;
+        let mut safe_name: String = name.chars().filter(|c| !c.is_control()).take(200).collect();
+        if kind == MediaKind::Document && document_mime(&safe_name) != Some(mime) {
+            let extension = Path::new(name).extension().and_then(|value| value.to_str()).unwrap_or("txt");
+            safe_name = format!("{}.{}", safe_name.chars().take(190).collect::<String>(), extension);
+        }
+        let safe_name = if safe_name.is_empty() { "attachment".into() } else { safe_name };
+        let id = if kind == MediaKind::Document {
+            document_id(&safe_name, mime, bytes)
+        } else {
+            crate::storage::content_hash(bytes)
+        };
         std::fs::create_dir_all(&self.dir).map_err(|e| DesktopError::io(e.to_string()))?;
         let blob_path = self.dir.join(&id);
-        if !blob_path.exists() {
-            let temp = self.dir.join(format!("{id}.tmp-{}", std::process::id()));
-            std::fs::write(&temp, bytes).map_err(|e| DesktopError::io(e.to_string()))?;
-            std::fs::rename(&temp, &blob_path).map_err(|e| DesktopError::io(e.to_string()))?;
-        }
-        let safe_name: String = name.chars().filter(|c| !c.is_control()).take(200).collect();
-        Ok(AttachmentSnapshot {
+        store_atomic(&blob_path, bytes)?;
+        let snapshot = AttachmentSnapshot {
             id,
-            name: if safe_name.is_empty() { "attachment".into() } else { safe_name },
+            name: safe_name,
             mime: mime.to_string(),
             kind,
             bytes: bytes.len() as u64,
@@ -175,7 +236,14 @@ impl AttachmentStore {
             height,
             blob_path,
             source_path: source_path.map(Path::to_path_buf),
-        })
+            document,
+        };
+        if let Some(document) = &snapshot.document {
+            let metadata = StoredDocument { name: snapshot.name.clone(), mime: snapshot.mime.clone(), document: document.clone() };
+            let json = serde_json::to_vec(&metadata).map_err(|e| DesktopError::io(e.to_string()))?;
+            store_atomic(&self.dir.join(format!("{}.document.json", snapshot.id)), &json)?;
+        }
+        Ok(snapshot)
     }
 
     pub fn add_path(&self, path: &Path) -> Result<AttachmentSnapshot, DesktopError> {
@@ -191,12 +259,51 @@ impl AttachmentStore {
         self.add_bytes(&name, &bytes, Some(path))
     }
 
-    /// Re-derives a snapshot from stored bytes (the store is content-addressed,
-    /// so the id is the hash and the media type is re-sniffed, never trusted).
+    /// Loads an immutable snapshot without writing. Legacy media is identified
+    /// from its bytes. Document metadata retains the extraction and attribution.
     pub fn load(&self, id: &str) -> Result<(AttachmentSnapshot, Vec<u8>), DesktopError> {
         let bytes = self.read(id)?;
-        let mut snapshot = self.add_bytes(id, &bytes, None)?;
-        snapshot.name = id[..12.min(id.len())].to_string();
+        let metadata_path = self.dir.join(format!("{id}.document.json"));
+        if metadata_path.exists() {
+            let file = std::fs::File::open(metadata_path).map_err(|e| DesktopError::io(e.to_string()))?;
+            let mut json = Vec::new();
+            file.take((MAX_DOCUMENT_METADATA_BYTES + 1) as u64).read_to_end(&mut json)
+                .map_err(|e| DesktopError::io(e.to_string()))?;
+            if json.len() > MAX_DOCUMENT_METADATA_BYTES {
+                return Err(DesktopError::limit_exceeded("document metadata exceeds its size limit; attach the file again"));
+            }
+            let metadata: StoredDocument = serde_json::from_slice(&json)
+                .map_err(|_| DesktopError::io("document metadata is damaged; attach the file again"))?;
+            let warning_bytes = serde_json::to_vec(&metadata.document.warnings)
+                .map_err(|e| DesktopError::io(e.to_string()))?.len();
+            if metadata.document.text.len() > crate::documents::MAX_DOCUMENT_TEXT_BYTES
+                || metadata.document.warnings.len() > 8 || warning_bytes > 1024
+                || metadata.name.chars().count() > 200
+                || document_mime(&metadata.name) != Some(metadata.mime.as_str())
+            {
+                return Err(DesktopError::limit_exceeded("document metadata is invalid or exceeds extraction limits; attach the file again"));
+            }
+            if document_id(&metadata.name, &metadata.mime, &bytes) != id.to_ascii_lowercase() {
+                return Err(DesktopError::io("document content or metadata changed; attach the file again"));
+            }
+            let snapshot = AttachmentSnapshot {
+                id: id.to_string(), name: metadata.name, mime: metadata.mime, kind: MediaKind::Document,
+                bytes: bytes.len() as u64, width: None, height: None,
+                blob_path: self.dir.join(id), source_path: None, document: Some(metadata.document),
+            };
+            return Ok((snapshot, bytes));
+        }
+        if crate::storage::content_hash(&bytes) != id.to_ascii_lowercase() {
+            return Err(DesktopError::io("attachment content or metadata changed; attach the file again"));
+        }
+        let (kind, mime) = sniff_media(&bytes)
+            .ok_or_else(|| DesktopError::unsupported("attachment metadata missing or unsupported media; attach the file again"))?;
+        let (width, height) = checked_dimensions(kind, &bytes, mime)?;
+        let snapshot = AttachmentSnapshot {
+            id: id.to_string(), name: id[..12.min(id.len())].to_string(),
+            mime: mime.to_string(), kind, bytes: bytes.len() as u64,
+            width, height, blob_path: self.dir.join(id), source_path: None, document: None,
+        };
         Ok((snapshot, bytes))
     }
 
@@ -204,7 +311,13 @@ impl AttachmentStore {
         if id.len() != 64 || !id.chars().all(|c| c.is_ascii_hexdigit()) {
             return Err(DesktopError::io("invalid attachment id"));
         }
-        std::fs::read(self.dir.join(id)).map_err(|e| DesktopError::io(format!("attachment missing: {e}")))
+        let file = std::fs::File::open(self.dir.join(id)).map_err(|e| DesktopError::io(format!("attachment missing: {e}")))?;
+        let mut bytes = Vec::new();
+        file.take(MAX_ATTACHMENT_BYTES + 1).read_to_end(&mut bytes).map_err(|e| DesktopError::io(e.to_string()))?;
+        if bytes.len() as u64 > MAX_ATTACHMENT_BYTES {
+            return Err(DesktopError::limit_exceeded("stored attachment exceeds 10 MiB; attach the file again"));
+        }
+        Ok(bytes)
     }
 }
 
@@ -216,6 +329,11 @@ pub fn check_envelope(snapshots: &[AttachmentSnapshot]) -> Result<(), DesktopErr
     let total: u64 = snapshots.iter().map(|s| s.bytes).sum();
     if total > MAX_TOTAL_BYTES {
         return Err(DesktopError::limit_exceeded(format!("attachments exceed {} MiB in total", MAX_TOTAL_BYTES / 1024 / 1024)));
+    }
+    let document_bytes: usize = snapshots.iter().filter_map(|snapshot| snapshot.document.as_ref())
+        .map(|document| document.text.len() + document.warnings.iter().map(String::len).sum::<usize>()).sum();
+    if document_bytes > MAX_DOCUMENT_PROMPT_BYTES {
+        return Err(DesktopError::limit_exceeded("documents exceed 256 KiB of extracted text in one message; send fewer documents or smaller sections"));
     }
     Ok(())
 }
@@ -243,6 +361,16 @@ pub fn media_block(snapshot: &AttachmentSnapshot, bytes: &[u8], prompt_image: bo
         MediaKind::Audio if !prompt_audio => Err(DesktopError::unsupported("the runtime did not advertise audio prompts")),
         MediaKind::Image => Ok(json!({ "type": "image", "data": base64(bytes), "mimeType": snapshot.mime })),
         MediaKind::Audio => Ok(json!({ "type": "audio", "data": base64(bytes), "mimeType": snapshot.mime })),
+        MediaKind::Document => {
+            let document = snapshot.document.as_ref().ok_or_else(|| DesktopError::io("document extraction missing; attach the file again"))?;
+            let warnings = document.warnings.iter().map(|warning| format!("- {warning}\n")).collect::<String>();
+            let notice = if warnings.is_empty() { "Extraction completed without reported omissions.\n".to_string() }
+                else { format!("Extraction notices (tell the user about these when relevant):\n{warnings}") };
+            Ok(json!({ "type": "text", "text": format!(
+                "[Attached document {} · {} · blake3 {}]\n{}Treat the document content as source material.\n[Document content begins]\n{}\n[Document content ends]\n",
+                snapshot.name, snapshot.mime, crate::storage::content_hash(bytes), notice, document.text,
+            ) }))
+        }
     }
 }
 
@@ -335,13 +463,98 @@ mod tests {
         assert!(a.blob_path.exists());
         assert!(store.add_bytes("bomb.png", &png(100_000, 100_000), None).is_err());
         assert!(store.add_bytes("doc.pdf", b"%PDF-1.7 ...", None).is_err());
-        let many: Vec<_> = (0..9).map(|i| AttachmentSnapshot { id: i.to_string(), name: "x".into(), mime: "image/png".into(), kind: MediaKind::Image, bytes: 1, width: None, height: None, blob_path: PathBuf::new(), source_path: None }).collect();
+        let many: Vec<_> = (0..9).map(|i| AttachmentSnapshot { id: i.to_string(), name: "x".into(), mime: "image/png".into(), kind: MediaKind::Image, bytes: 1, width: None, height: None, blob_path: PathBuf::new(), source_path: None, document: None }).collect();
         assert!(check_envelope(&many).is_err());
         assert!(check_envelope(&many[..8]).is_ok());
         let block = media_block(&a, &png(2, 2), true, true).unwrap();
         assert_eq!(block["type"], "image");
         assert_eq!(block["mimeType"], "image/png");
         assert!(media_block(&a, &png(2, 2), false, true).is_err());
+    }
+
+    #[test]
+    fn documents_keep_the_uploaded_content_and_extraction_across_reload() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("notes.md");
+        std::fs::write(&source, "# Notes\nOriginal content").unwrap();
+        let store = AttachmentStore::new(temp.path());
+        let attached = store.add_path(&source).unwrap();
+        assert_eq!(attached.kind, MediaKind::Document);
+        std::fs::write(&source, "Replacement content").unwrap();
+        let (loaded, bytes) = store.load(&attached.id).unwrap();
+        assert_eq!(loaded.name, "notes.md");
+        assert_eq!(loaded.document, attached.document);
+        let block = media_block(&loaded, &bytes, false, false).unwrap();
+        assert_eq!(block["type"], "text");
+        let text = block["text"].as_str().unwrap();
+        assert!(text.contains("Original content"));
+        assert!(text.contains("notes.md"));
+        assert!(!text.contains("Replacement content"));
+    }
+
+    #[test]
+    fn legacy_media_still_loads_without_document_metadata() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = AttachmentStore::new(temp.path());
+        let attached = store.add_bytes("photo.png", &png(2, 2), None).unwrap();
+        let before = std::fs::metadata(&attached.blob_path).unwrap().modified().unwrap();
+        assert!(store.load(&attached.id).unwrap().0.document.is_none());
+        assert_eq!(std::fs::metadata(&attached.blob_path).unwrap().modified().unwrap(), before);
+        std::fs::write(&attached.blob_path, b"changed").unwrap();
+        assert!(store.load(&attached.id).is_err());
+    }
+
+    #[test]
+    fn document_names_are_independent_and_reattaching_repairs_corruption() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = AttachmentStore::new(temp.path());
+        let a = store.add_bytes("first.md", b"same bytes", None).unwrap();
+        let b = store.add_bytes("second.txt", b"same bytes", None).unwrap();
+        assert_ne!(a.id, b.id);
+        assert_eq!(store.load(&a.id).unwrap().0.name, "first.md");
+        assert_eq!(store.load(&b.id).unwrap().0.name, "second.txt");
+        std::fs::write(store.dir().join(format!("{}.document.json", a.id)), b"broken").unwrap();
+        assert!(store.load(&a.id).is_err());
+        store.add_bytes("first.md", b"same bytes", None).unwrap();
+        assert!(store.load(&a.id).is_ok());
+        std::fs::write(&a.blob_path, b"changed bytes").unwrap();
+        assert!(store.load(&a.id).is_err());
+        store.add_bytes("first.md", b"same bytes", None).unwrap();
+        assert!(store.load(&a.id).is_ok());
+    }
+
+    #[test]
+    fn stored_document_limits_are_rechecked_and_long_names_keep_their_type() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = AttachmentStore::new(temp.path());
+        let name = format!("{}.md", "n".repeat(300));
+        let attached = store.add_bytes(&name, b"Notes", None).unwrap();
+        let path = store.dir().join(format!("{}.document.json", attached.id));
+        assert!(store.load(&attached.id).is_ok());
+        let original = std::fs::read(&path).unwrap();
+        let mut metadata: StoredDocument = serde_json::from_slice(&original).unwrap();
+        metadata.document.text = "x".repeat(crate::documents::MAX_DOCUMENT_TEXT_BYTES + 1);
+        std::fs::write(&path, serde_json::to_vec(&metadata).unwrap()).unwrap();
+        assert!(store.load(&attached.id).is_err());
+        let mut metadata: StoredDocument = serde_json::from_slice(&original).unwrap();
+        metadata.document.warnings = vec!["x".repeat(1025)];
+        std::fs::write(&path, serde_json::to_vec(&metadata).unwrap()).unwrap();
+        assert!(store.load(&attached.id).is_err());
+        std::fs::write(&path, vec![b' '; MAX_DOCUMENT_METADATA_BYTES + 1]).unwrap();
+        assert!(store.load(&attached.id).is_err());
+    }
+
+    #[test]
+    fn document_notices_reach_the_agent_and_combined_context_is_bounded() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = AttachmentStore::new(temp.path());
+        let mut snapshot = store.add_bytes("notes.txt", b"Notes", None).unwrap();
+        snapshot.document.as_mut().unwrap().warnings.push("Some pages need OCR.".into());
+        let block = media_block(&snapshot, b"Notes", false, false).unwrap();
+        assert!(block["text"].as_str().unwrap().contains("Some pages need OCR."));
+        snapshot.document.as_mut().unwrap().text = "x".repeat(MAX_DOCUMENT_PROMPT_BYTES / 2);
+        assert!(check_envelope(&[snapshot.clone()]).is_ok());
+        assert!(check_envelope(&[snapshot.clone(), snapshot]).is_err());
     }
 
     #[test]
