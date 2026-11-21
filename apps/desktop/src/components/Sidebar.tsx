@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { IS_REMOTE } from "../remote/mode";
 import { PhoneAppSettings } from "../remote/PhoneAppSettings";
 import type { Provider, QuickChat } from "@thingmaker/contracts";
@@ -83,6 +83,23 @@ export type Row = {
   fork: boolean;
 };
 
+type SessionMenuTarget = {
+  row: Row;
+  at: { x: number; y: number };
+  trigger: HTMLButtonElement | null;
+};
+
+function sessionOrderKey(row: Row): string | null {
+  return row.id === null ? null : JSON.stringify([row.workspaceId, row.id]);
+}
+
+function orderSessionRows(rows: Row[], stored: unknown): Row[] {
+  if (!Array.isArray(stored) || stored.length === 0) return rows;
+  const positions = new Map(stored.map((key, index) => [key, index]));
+  const position = (row: Row) => positions.get(sessionOrderKey(row)) ?? stored.length;
+  return [...rows].sort((a, b) => position(a) - position(b));
+}
+
 /** Siblings without a wrapper element: rows stay direct children of the list. */
 function SessionGroup({ children }: { children: ReactNode }) {
   return <>{children}</>;
@@ -115,7 +132,7 @@ function SessionRow({
 }: {
   row: Row;
   showProject?: boolean;
-  onMenu: (row: Row, at: { x: number; y: number }) => void;
+  onMenu: (target: SessionMenuTarget) => void;
   renaming: boolean;
   onRename: (title: string | null) => void;
   /** How deep it is nested: under a session, a fork of a fork, … */
@@ -181,14 +198,26 @@ function SessionRow({
       className={`session-li ${row.archived ? "archived" : ""} ${depth > 0 ? (row.fork ? "session-nested" : "session-worker") : ""}`}
       style={depth > 0 ? { marginLeft: 14 * depth } : undefined}
       onContextMenu={(event) => {
-      event.preventDefault();
-      onMenu(row, { x: event.clientX, y: event.clientY });
-    }}>
+        event.preventDefault();
+        onMenu({
+          row,
+          at: { x: event.clientX, y: event.clientY },
+          trigger: event.currentTarget.querySelector(".row-action[aria-haspopup]"),
+        });
+      }}
+    >
       <button
         aria-current={active ? "page" : undefined}
         className={`session-row ${row.liveId ? "" : "stored"} ${active ? "selected" : ""}`}
         disabled={!row.liveId && !row.trusted}
         onClick={open}
+        onKeyDown={(event) => {
+          if (!row.id || (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10"))) return;
+          event.preventDefault();
+          const trigger = event.currentTarget;
+          const { left, bottom } = trigger.getBoundingClientRect();
+          onMenu({ row, at: { x: left, y: bottom }, trigger });
+        }}
         // The row's room goes to the title; when it was last active shows on hover.
         title={[
           row.label,
@@ -230,8 +259,9 @@ function SessionRow({
           className="icon-button icon-button-xs row-action"
           disabled={row.id === null}
           onClick={(event) => {
-            const box = event.currentTarget.getBoundingClientRect();
-            onMenu(row, { x: box.right, y: box.bottom });
+            const trigger = event.currentTarget;
+            const { right, bottom } = trigger.getBoundingClientRect();
+            onMenu({ row, at: { x: right, y: bottom }, trigger });
           }}
           title={t("Rename, pin, open folder")}
           type="button"
@@ -288,7 +318,16 @@ function ProjectMenu({ workspaceId, at, onClose, onWipe, onRemove, onRenameFolde
   );
 }
 
-export function RowMenu({ row, at, onClose, onRename, parentLabel }: { row: Row; at: { x: number; y: number }; onClose: () => void; onRename?: () => void; parentLabel: string | null }) {
+export function RowMenu({ row, at, onClose, onRename, onMoveUp, onMoveDown, parentLabel, trigger }: {
+  row: Row;
+  at: { x: number; y: number };
+  onClose: () => void;
+  onRename?: () => void;
+  onMoveUp?: (() => void) | undefined;
+  onMoveDown?: (() => void) | undefined;
+  parentLabel: string | null;
+  trigger?: HTMLButtonElement | null;
+}) {
   const pinSession = useStore((s) => s.pinSession);
   const archiveSession = useStore((s) => s.archiveSession);
   const forkSession = useStore((s) => s.forkSession);
@@ -298,13 +337,23 @@ export function RowMenu({ row, at, onClose, onRename, parentLabel }: { row: Row;
   const running = useStore((s) => Boolean(row.liveId && s.sessions[row.liveId] && s.sessions[row.liveId]?.projection.process !== "exited"));
   const menu = useRef<HTMLDivElement>(null);
 
+  useLayoutEffect(() => {
+    const element = menu.current;
+    if (!element) return;
+    element.style.left = `${Math.max(0, Math.min(at.x, window.innerWidth - element.offsetWidth))}px`;
+    element.style.top = `${Math.max(0, Math.min(at.y, window.innerHeight - element.offsetHeight))}px`;
+  });
+
   useEffect(() => {
-    menu.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    menu.current?.querySelector<HTMLButtonElement>("button:enabled")?.focus();
     const onDown = (event: MouseEvent) => {
       if (!menu.current?.contains(event.target as Node)) onClose();
     };
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        onClose();
+        trigger?.focus();
+      }
     };
     // Capture, so a click anywhere closes the menu before it activates a row.
     document.addEventListener("mousedown", onDown, true);
@@ -313,7 +362,7 @@ export function RowMenu({ row, at, onClose, onRename, parentLabel }: { row: Row;
       document.removeEventListener("mousedown", onDown, true);
       document.removeEventListener("keydown", onKey);
     };
-  }, [onClose]);
+  }, [at, onClose, trigger]);
 
   const act = (run: () => void) => () => {
     run();
@@ -326,12 +375,20 @@ export function RowMenu({ row, at, onClose, onRename, parentLabel }: { row: Row;
 
   return (
     <div
-      className="context-menu"
+      className="context-menu session-menu"
       ref={menu}
       role="menu"
-      // Keep the menu on screen when the row is near the bottom edge.
-      style={{ left: Math.min(at.x, window.innerWidth - 200), top: Math.min(at.y, window.innerHeight - 170) }}
     >
+      {(onMoveUp || onMoveDown) && (
+        <>
+          <button className="context-item" disabled={!onMoveUp} onClick={onMoveUp && act(onMoveUp)} role="menuitem" type="button">
+            {t("Move up")}
+          </button>
+          <button className="context-item" disabled={!onMoveDown} onClick={onMoveDown && act(onMoveDown)} role="menuitem" type="button">
+            {t("Move down")}
+          </button>
+        </>
+      )}
       {onRename && (
         <button className="context-item" onClick={act(onRename)} role="menuitem" type="button">
           {t("Rename…")}
@@ -534,6 +591,8 @@ function remember(key: string, value: unknown) {
   }
 }
 
+const SESSION_ORDERS_KEY = "thingmaker.sidebar.sessionOrders";
+
 export function Sidebar() {
   const workspaces = useStore((s) => s.workspaces);
   const inspections = useStore((s) => s.inspections);
@@ -574,7 +633,16 @@ export function Sidebar() {
   // Folded workspaces, and the Pinned group, stay folded across restarts.
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => remembered("thingmaker.sidebar.collapsed", {}));
   const [pinnedCollapsed, setPinnedCollapsed] = useState(() => remembered("thingmaker.sidebar.pinnedCollapsed", false));
-  const [menu, setMenu] = useState<{ row: Row; at: { x: number; y: number } } | null>(null);
+  const [menu, setMenu] = useState<SessionMenuTarget | null>(null);
+  const closeSessionMenu = useCallback(() => setMenu(null), []);
+  const [sessionOrders, setSessionOrders] = useState(() =>
+    remembered<Record<string, unknown> | null>(SESSION_ORDERS_KEY, {}) ?? {},
+  );
+  const restoreSessionFocus = useRef<HTMLButtonElement | null>(null);
+  useLayoutEffect(() => {
+    restoreSessionFocus.current?.focus();
+    restoreSessionFocus.current = null;
+  }, [sessionOrders]);
   /** Agent session id of the row being renamed inline. */
   const [renaming, setRenaming] = useState<string | null>(null);
   // Orchestrators whose workers are shown. Folded by default: a long run
@@ -703,6 +771,14 @@ export function Sidebar() {
       }));
 
     const rows = [...liveRows, ...storedRows];
+    const active = rows.filter((row) => !row.pinned && !row.archived);
+    const activeIds = new Set(active.map((row) => row.id));
+    const hasParent = (row: Row) => row.parent !== null && activeIds.has(row.parent);
+    const children = active.filter(hasParent);
+    const rootRows = orderSessionRows(
+      active.filter((row) => !hasParent(row)),
+      sessionOrders[`project:${workspace.id}`],
+    );
     return {
       workspace,
       inspection,
@@ -710,19 +786,40 @@ export function Sidebar() {
       project,
       liveCount: live.length,
       // Pinned sessions are listed once, in the Pinned group at the top.
-      unpinned: nestWorkers(rows.filter((row) => !row.pinned && !row.archived)),
+      unpinned: nestWorkers([...rootRows, ...children]),
+      rootRows,
       pinnedRows: rows.filter((row) => row.pinned && !row.archived),
       archivedRows: rows.filter((row) => row.archived),
     };
   });
 
-  const allPinned = groups.flatMap((group) => group.pinnedRows);
+  const allPinned = orderSessionRows(groups.flatMap((group) => group.pinnedRows), sessionOrders.pinned);
   // Quick chats are listed on their own, newest first, below the projects.
   const projectGroups = groups.filter((group) => !quickById.has(group.workspace.id));
   const quickGroups = groups
     .filter((group) => quickById.has(group.workspace.id))
     .sort((a, b) => (quickById.get(b.workspace.id)?.createdAt ?? 0) - (quickById.get(a.workspace.id)?.createdAt ?? 0));
   const manyProjects = projectGroups.length > 1;
+  const menuProject = projectGroups.find(({ workspace }) => workspace.id === menu?.row.workspaceId);
+  const orderScope = menu?.row.pinned ? "pinned" : `project:${menu?.row.workspaceId}`;
+  const moveKeys = (menu?.row.pinned ? allPinned : menuProject?.rootRows ?? [])
+    .map(sessionOrderKey)
+    .filter((key): key is string => key !== null);
+  const menuKey = menu ? sessionOrderKey(menu.row) : null;
+  const moveIndex = menuKey === null ? -1 : moveKeys.indexOf(menuKey);
+  const moveSession = (step: number) => {
+    const destination = moveIndex + step;
+    if (!menu || menuKey === null || moveIndex < 0 || destination < 0 || destination >= moveKeys.length) return;
+    const next = [...moveKeys];
+    next.splice(moveIndex, 1);
+    next.splice(destination, 0, menuKey);
+    const saved = sessionOrders[orderScope];
+    const missing = Array.isArray(saved) ? saved.filter((key) => typeof key === "string" && !next.includes(key)) : [];
+    const orders = { ...sessionOrders, [orderScope]: [...next, ...missing] };
+    restoreSessionFocus.current = menu.trigger;
+    setSessionOrders(orders);
+    remember(SESSION_ORDERS_KEY, orders);
+  };
 
   return (
     <nav aria-label={t("Workspaces and sessions")} className="sidebar" style={IS_REMOTE ? undefined : { width }}>
@@ -771,7 +868,7 @@ export function Sidebar() {
                 {allPinned.map((row) => (
                   <SessionRow
                     key={`pinned-${row.workspaceId}-${row.liveId ?? row.id}`}
-                    onMenu={(target, at) => setMenu({ row: target, at })}
+                    onMenu={setMenu}
                     onRename={(title) => {
                       setRenaming(null);
                       if (title !== null && row.id) void renameSession(row.workspaceId, row.id, title);
@@ -887,7 +984,7 @@ export function Sidebar() {
                         <SessionGroup key={row.liveId ?? row.id}>
                           <SessionRow
                             depth={depth}
-                            onMenu={(target, at) => setMenu({ row: target, at })}
+                            onMenu={setMenu}
                             onRename={(title) => {
                               setRenaming(null);
                               if (title !== null && row.id) void renameSession(row.workspaceId, row.id, title);
@@ -939,7 +1036,7 @@ export function Sidebar() {
                     archivedRows.map((row) => (
                       <SessionRow
                         key={`archived-${row.id}`}
-                        onMenu={(target, at) => setMenu({ row: target, at })}
+                        onMenu={setMenu}
                         onRename={(title) => {
                           setRenaming(null);
                           if (title !== null && row.id) void renameSession(row.workspaceId, row.id, title);
@@ -998,7 +1095,7 @@ export function Sidebar() {
                 return top.map((row) => (
                   <SessionRow
                     key={`quick-${row.liveId ?? row.id}`}
-                    onMenu={(target, at) => setMenu({ row: target, at })}
+                    onMenu={setMenu}
                     onRename={(title) => {
                       setRenaming(null);
                       if (title !== null && row.id) void renameSession(row.workspaceId, row.id, title);
@@ -1018,10 +1115,13 @@ export function Sidebar() {
       {menu && (
         <RowMenu
           at={menu.at}
-          onClose={() => setMenu(null)}
+          onClose={closeSessionMenu}
+          onMoveDown={moveIndex >= 0 && moveIndex < moveKeys.length - 1 ? () => moveSession(1) : undefined}
+          onMoveUp={moveIndex > 0 ? () => moveSession(-1) : undefined}
           onRename={() => setRenaming(menu.row.id)}
           parentLabel={(menu.row.parent && groups.flatMap((group) => [...group.unpinned, ...group.pinnedRows, ...group.archivedRows]).find((row) => row.id === menu.row.parent)?.label) || null}
           row={menu.row}
+          trigger={menu.trigger}
         />
       )}
 

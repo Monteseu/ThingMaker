@@ -26,7 +26,10 @@ import { Sidebar } from "./components/Sidebar";
 import { useStore } from "./store";
 import type { SessionRecord, WorkspaceRecord } from "@thingmaker/contracts";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  localStorage.removeItem("thingmaker.sidebar.sessionOrders");
+});
 
 const workspace: WorkspaceRecord = {
   id: "w1",
@@ -107,6 +110,53 @@ describe("the session list comes from the desktop's own records", () => {
     seed([record({ agentSessionId: "0ff8c852-5379-4b8f-886c-eac51c9a6c7d", provider: "claude", archiveState: "unavailable" })]);
     render(<Sidebar />);
     expect(screen.queryByText(/0ff8c852/)).toBeNull();
+  });
+});
+
+describe("manual session order", () => {
+  function titles(container: HTMLElement) {
+    return Array.from(container.querySelectorAll(".session-row .sidebar-title"), (title) => title.textContent);
+  }
+
+  it("keeps nested sessions with their parent and saves the order across remounts", () => {
+    const first = record({ agentSessionId: "first", autoTitle: "First topic" });
+    const fork = record({ agentSessionId: "fork", autoTitle: "Nested topic", origin: "fork", parentSessionId: first.id });
+    const second = record({ agentSessionId: "second", autoTitle: "Second topic" });
+    seed([first, fork, second]);
+    const { container, unmount } = render(<Sidebar />);
+    expect(titles(container)).toEqual(["First topic", "Nested topic", "Second topic"]);
+
+    const firstButton = screen.getByText("First topic").closest("button")!;
+    fireEvent.keyDown(firstButton, { key: "F10", shiftKey: true });
+    expect(screen.getByRole<HTMLButtonElement>("menuitem", { name: "Move up" }).disabled).toBe(true);
+    const moveDown = screen.getByRole("menuitem", { name: "Move down" });
+    expect(document.activeElement).toBe(moveDown);
+    fireEvent.click(moveDown);
+    expect(document.activeElement).toBe(firstButton);
+    expect(titles(container)).toEqual(["Second topic", "First topic", "Nested topic"]);
+
+    fireEvent.contextMenu(screen.getByText("Nested topic"));
+    expect(screen.queryByRole("menuitem", { name: "Move up" })).toBeNull();
+    unmount();
+    const added = record({ agentSessionId: "new", autoTitle: "New topic" });
+    seed([added, first, fork, second]);
+    const mounted = render(<Sidebar />);
+    expect(titles(mounted.container)).toEqual(["Second topic", "First topic", "Nested topic", "New topic"]);
+  });
+
+  it("reorders the pinned list independently of project sessions", () => {
+    const first = record({ agentSessionId: "first", autoTitle: "First topic" });
+    const second = record({ agentSessionId: "second", autoTitle: "Second topic" });
+    const pinnedA = record({ agentSessionId: "pinned-a", autoTitle: "Pinned A", pinned: true });
+    const pinnedB = record({ agentSessionId: "pinned-b", autoTitle: "Pinned B", pinned: true });
+    const other = { ...workspace, id: "w2", displayPath: "/Users/p/P4" };
+    seed([first, second, pinnedA]);
+    useStore.setState({ workspaces: [workspace, other], records: { w1: [first, second, pinnedA], w2: [{ ...pinnedB, workspaceId: "w2" }] } });
+    const { container } = render(<Sidebar />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Pinned B" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Move up" }));
+    expect(titles(container)).toEqual(["Pinned B", "Pinned A", "First topic", "Second topic"]);
   });
 });
 
