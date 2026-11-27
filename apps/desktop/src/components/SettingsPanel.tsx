@@ -184,6 +184,21 @@ function GeneralTab({ settings, update }: TabProps) {
         )}
       </SettingGroup>
 
+      <SettingGroup title={t("Appearance")}>
+        <SettingRow hint={t("Gray is a soft grey; Light is brighter, near white")} name={t("Theme")}>
+          <Segmented
+            choices={[
+              { value: "gray", label: t("Gray") },
+              { value: "light", label: t("Light") },
+              { value: "dark", label: t("Dark") },
+            ]}
+            label={t("Theme")}
+            onChange={(theme) => void setUiPrefs({ theme })}
+            value={uiPrefs.theme ?? "dark"}
+          />
+        </SettingRow>
+      </SettingGroup>
+
       <SettingGroup title={t("While agents work")}>
         <SettingRow
           hint={keepAwake ? (working > 0 ? t("Awake for {n} working now", { n: working }) : t("Nothing is working")) : undefined}

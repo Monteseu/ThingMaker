@@ -178,7 +178,7 @@ export type OdysseyRuntime = {
 
 export const SESSION_TABS: SessionTab[] = ["transcript", "agents", "odyssey", "terminal", "files", "changes", "context", "artifacts", "images", "ultrareview"];
 
-export const DEFAULT_UI_PREFS: UiPrefs = { enterSends: true, reducedMotion: "system", transcriptPage: 50, followUp: "queue" };
+export const DEFAULT_UI_PREFS: UiPrefs = { enterSends: true, reducedMotion: "system", transcriptPage: 50, followUp: "queue", theme: "dark" };
 
 export type OpenMode = { mode: "new" } | { mode: "resume"; session_id: string };
 

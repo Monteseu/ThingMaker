@@ -30,6 +30,70 @@
   --traffic-lights: 84px;
 }
 
+/* Two light options share the same darkened text, borders and status colours,
+   and differ only in how light their surfaces are. "Gray" is a soft mid-grey
+   (what was asked for first); "Light" is brighter, near white without being pure
+   white. The dark :root above stays the default and the pre-JS fallback. */
+:root[data-theme="gray"],
+:root[data-theme="light"] {
+  color-scheme: light;
+  --border: rgba(0, 0, 0, 0.12);
+  --border-strong: rgba(0, 0, 0, 0.22);
+  --text: #1b1b1d;
+  --text-2: #3b3b40;
+  --muted: #6a6a70;
+  --accent: #e2560f;
+  --accent-soft: rgba(226, 86, 15, 0.14);
+  --focus: #2f6fd6;
+  --warn: #9a6a00;
+  --error: #c23b3b;
+  --ok: #2f8f55;
+  --info: #2f6fd6;
+}
+
+:root[data-theme="gray"] {
+  --bg: #d9d9db;
+  --sidebar: #cfcfd2;
+  --panel: #e7e7ea;
+  --panel-2: #eeeef0;
+  --panel-3: #f4f4f6;
+}
+
+:root[data-theme="light"] {
+  --bg: #ededf0;
+  --sidebar: #e4e4e8;
+  --panel: #f7f7f9;
+  --panel-2: #fcfcfd;
+  --panel-3: #ffffff;
+}
+
+/* Fixes for surfaces whose text or strokes were hard-coded light for the dark
+   background; on either light theme they would drop to ~1:1 contrast. */
+:root[data-theme="gray"] .banner-error,
+:root[data-theme="light"] .banner-error { color: var(--error); }
+:root[data-theme="gray"] .banner-attention,
+:root[data-theme="light"] .banner-attention { color: var(--warn); }
+:root[data-theme="gray"] .task-status-in_progress,
+:root[data-theme="light"] .task-status-in_progress { color: var(--info); }
+:root[data-theme="gray"] .local-fit-fits,
+:root[data-theme="light"] .local-fit-fits { color: var(--ok); }
+:root[data-theme="gray"] .local-fit-tight,
+:root[data-theme="light"] .local-fit-tight { color: var(--warn); }
+:root[data-theme="gray"] .local-fit-too_big,
+:root[data-theme="light"] .local-fit-too_big { color: var(--error); }
+:root[data-theme="gray"] .provider-tag.provider-claude,
+:root[data-theme="light"] .provider-tag.provider-claude { color: #b4461e; }
+:root[data-theme="gray"] .provider-tag.provider-codex,
+:root[data-theme="light"] .provider-tag.provider-codex { color: #2f5fbf; }
+:root[data-theme="gray"] .provider-tag.provider-gemini,
+:root[data-theme="light"] .provider-tag.provider-gemini { color: #2f8f55; }
+:root[data-theme="gray"] .provider-tag.provider-local,
+:root[data-theme="light"] .provider-tag.provider-local { color: #2e7d4f; }
+:root[data-theme="gray"] .chart-wires path,
+:root[data-theme="light"] .chart-wires path { stroke: rgba(0, 0, 0, 0.28); }
+:root[data-theme="gray"] .set-time,
+:root[data-theme="light"] .set-time { color-scheme: light; }
+
 :root[data-platform="windows"] {
   --traffic-lights: 16px;
 }
