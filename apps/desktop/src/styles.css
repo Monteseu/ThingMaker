@@ -101,10 +101,22 @@ code {
 
 /* ---------- Shell ---------- */
 
+/* The window itself never scrolls: only the panes inside it do. An absolutely
+   positioned element deep in a long transcript would otherwise take the page
+   as its containing block and stretch it, and the WebView on Windows then
+   scrolls the whole shell. Positioning the app contains those elements, clip
+   keeps them from overflowing it without making it scrollable from script. */
+html,
+body {
+  overflow: hidden;
+}
+
 .app {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
+  overflow: clip;
 }
 
 .shell {
