@@ -48,6 +48,10 @@ import sys
 import threading
 import time
 
+# ACP stdio is UTF-8, including finding headings on Windows pipe handles.
+sys.stdin.reconfigure(encoding="utf-8")
+sys.stdout.reconfigure(encoding="utf-8")
+
 write_lock = threading.Lock()
 LIMIT = "--limit" in sys.argv
 HANG = "--hang" in sys.argv

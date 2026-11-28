@@ -334,6 +334,8 @@ export function ModelMenu({
   // A provider chosen for the next message: its own models and efforts,
   // kept in the session's pending choice until that message is sent.
   const pending = useStore((s) => s.pendingProvider[sessionId]);
+  const provider = useStore((s) => s.sessions[sessionId]?.snapshot.provider);
+  const chipProvider = pending?.provider ?? (provider === "copilot" ? provider : undefined);
   const setPending = useStore((s) => s.setPendingProvider);
   const loadProviderModels = useStore((s) => s.loadProviderModels);
   const pendingModels = useStore((s) => (pending ? s.providerModels[pending.provider] : undefined));
@@ -381,7 +383,7 @@ export function ModelMenu({
         }
         type="button"
       >
-        {pending && <span className="model-chip-provider">{PROVIDER_LABELS[pending.provider]}</span>}
+        {chipProvider && <><span className="model-chip-provider">{PROVIDER_LABELS[chipProvider]}</span>{" "}</>}
         {fastEnabled && <IconBolt className="model-chip-bolt" size={12} />}
         <span className="model-chip-model">{modelNow?.choice.name ?? t("Model")}</span>
         {isLocalModelId(modelNow?.choice.value) && <span className="model-chip-effort">{localKindLabel(parseLocalModel(modelNow?.choice.value).kind)}</span>}

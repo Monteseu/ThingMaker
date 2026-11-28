@@ -9,6 +9,8 @@ import { type AccountView, type Provider } from "@thingmaker/contracts";
 import { api } from "../ipc";
 import { useStore } from "../store";
 import { t } from "../i18n";
+import { copilotQuotaLabel } from "../copilotQuota";
+import { pairWindows, UsageMeter } from "./UsageMeter";
 
 /** What an account is called: its name, else (the default) "Main account". */
 export function accountName(account: AccountView): string {
@@ -17,6 +19,8 @@ export function accountName(account: AccountView): string {
 
 export function ProviderAccounts({ provider }: { provider: Provider }) {
   const accounts = useStore((s) => s.accounts[provider]);
+  const quota = useStore((s) => s.quotas[provider]);
+  const usage = useStore((s) => s.usage[provider]);
   const loadAccounts = useStore((s) => s.loadAccounts);
   const addAccount = useStore((s) => s.addAccount);
   const renameAccount = useStore((s) => s.renameAccount);
@@ -100,7 +104,20 @@ export function ProviderAccounts({ provider }: { provider: Provider }) {
             </div>
           );
         })}
-      {adding === null ? (
+      {provider === "copilot" ? (
+        <>
+          {usage?.primary && (usage.windows ? pairWindows(usage.windows) : [{ short: usage.primary, long: usage.secondary }]).map((pair, row) => (
+            <div className="row wrap small muted" key={row}>
+              {pair.short && <UsageMeter usage={pair.short} fetchedAtUnixMs={usage.fetchedAtUnixMs} />}
+              {pair.long && <UsageMeter usage={pair.long} fetchedAtUnixMs={usage.fetchedAtUnixMs} />}
+            </div>
+          ))}
+          <p className="small muted">
+            {quota?.windows.filter((window) => window.kind.endsWith("_unlimited")).map((window) => <span key={window.kind}>{copilotQuotaLabel(window.kind)} · </span>)}
+            {t("Copilot uses its main CLI account. Run `copilot login` in a terminal to change it.")}
+          </p>
+        </>
+      ) : adding === null ? (
         <button className="button button-small provider-account-add" disabled={signingIn} onClick={() => setAdding("")} type="button">
           {t("+ Add account")}
         </button>

@@ -37,7 +37,7 @@ describe("quota continuation choices", () => {
     expect(prepare).not.toHaveBeenCalled();
     chooseGemini();
     expect(prepare).not.toHaveBeenCalled();
-    expect(loadAccounts).toHaveBeenCalledTimes(3);
+    expect(loadAccounts).toHaveBeenCalledTimes(4);
     expect(screen.getByText(/nothing is sent until you send it/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Prepare continuation" }));
     await waitFor(() => expect(prepare).toHaveBeenCalledWith("s1", { provider: "gemini" }));

@@ -8,44 +8,13 @@ use std::{process::Stdio, sync::Arc, time::Duration};
 use thingmaker_supervisor::{DesktopError, agents::{AgentLaunch, Provider}, supervisor::SessionActorConfig};
 use tokio::{io::{AsyncBufReadExt, AsyncWriteExt, BufReader}, process::Command};
 
-/// The built-in team server already lives inside the desktop. Expose its
-/// existing dispatcher directly to the local AppContainer without starting Node.
-async fn team_endpoint(state: &AppState, entry: &mut Value) -> CommandResult<Arc<tokio::sync::oneshot::Sender<()>>> {
-    use axum::{extract::DefaultBodyLimit, http::{HeaderMap, StatusCode}, response::IntoResponse, routing::post, Json, Router};
-    use thingmaker_supervisor::delegation::{mcp, socket::TOKEN_ENV};
-    let delegation = state.delegation.get().cloned().ok_or_else(|| DesktopError::not_ready("Team service unavailable"))?;
-    let token = entry["env"].as_array().into_iter().flatten().find(|pair| pair["name"] == TOKEN_ENV)
-        .and_then(|pair| pair["value"].as_str()).ok_or_else(|| DesktopError::not_ready("Missing team credential"))?.to_owned();
-    let auth = format!("Bearer {token}");
-    let expected = auth.clone();
-    let app = Router::new().route("/mcp", post(move |headers: HeaderMap, Json(message): Json<Value>| {
-        let caller = if !headers.contains_key("origin") && headers.get("authorization").and_then(|v| v.to_str().ok()) == Some(&expected) {
-            delegation.caller_for_token(&token)
-        } else { None };
-        let delegation = delegation.clone();
-        async move {
-            let Some(caller) = caller else { return StatusCode::FORBIDDEN.into_response() };
-            match mcp::handle(&delegation, &caller, &message).await {
-                Some(reply) => Json(reply).into_response(),
-                None => StatusCode::ACCEPTED.into_response(),
-            }
-        }
-    })).layer(DefaultBodyLimit::max(1024 * 1024));
-    let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await.map_err(|e| DesktopError::io(e.to_string()))?;
-    let port = listener.local_addr().map_err(|e| DesktopError::io(e.to_string()))?.port();
-    let (owner, closed) = tokio::sync::oneshot::channel();
-    tokio::spawn(async move { let _ = axum::serve(listener, app).with_graceful_shutdown(async { let _ = closed.await; }).await; });
-    *entry = json!({"name":mcp::SERVER_NAME,"type":"http","url":format!("http://127.0.0.1:{port}/mcp"),
-        "headers":[{"name":"Authorization","value":auth}]});
-    Ok(Arc::new(owner))
-}
 
 pub async fn prepare(state: &AppState, config: &mut SessionActorConfig) -> CommandResult<()> {
     if config.launch.provider() != Provider::Local || matches!(&config.launch, AgentLaunch::Claude(o) if o.local.as_ref().is_some_and(|t| t.kind == thingmaker_supervisor::agents::local::LocalKind::Chat)) {
         return Ok(());
     }
     if let Some(team) = config.mcp_servers.iter_mut().find(|entry| entry["name"] == thingmaker_supervisor::delegation::mcp::SERVER_NAME && entry["command"].is_string()) {
-        config.local_team_lifetime = Some(team_endpoint(state, team).await?);
+        config.local_team_lifetime = Some(super::team_mcp::endpoint(state.delegation.get().cloned().ok_or_else(|| DesktopError::not_ready("Team service unavailable"))?, team).await?);
     }
     let workspace = config.launch.root().to_owned();
     let mut environment = config.environment.resolve(std::env::vars());

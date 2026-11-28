@@ -135,7 +135,7 @@ pub fn provider_title(provider: Provider, home: &Path, root: &Path, agent_sessio
             codex_title(&codex_home, agent_session_id)
         }
         // A local chat keeps no title of its own; its first prompt is used.
-        Provider::Gemini | Provider::Local => None,
+        Provider::Gemini | Provider::Copilot | Provider::Local => None,
     }
 }
 

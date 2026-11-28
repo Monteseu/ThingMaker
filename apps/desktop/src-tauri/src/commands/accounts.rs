@@ -51,7 +51,8 @@ fn save(state: &AppState, list: &[Account]) -> CommandResult<()> {
 /// A provider's accounts, the default first, each with its sign-in.
 #[tauri::command]
 pub async fn accounts_list(provider: Provider, state: State<'_, AppState>) -> CommandResult<Vec<AccountView>> {
-    check(provider)?;
+    // Display the main account and its usage without offering unsafe isolation.
+    if provider != Provider::Copilot { check(provider)?; }
     let active = state.active_account(provider);
     let mut views = vec![AccountView { id: DEFAULT_ACCOUNT.into(), provider, label: String::new(), is_default: true, active: active == DEFAULT_ACCOUNT, auth: None, conflicts: Vec::new() }];
     views.extend(state.accounts().into_iter().filter(|account| account.provider == provider).map(|account| AccountView { active: active == account.id, is_default: false, auth: None, conflicts: Vec::new(), id: account.id, provider, label: account.label }));

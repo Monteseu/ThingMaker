@@ -3,6 +3,7 @@
  * model menu's account switch).
  */
 export const accounts: Record<string, string> = {
+  "Copilot models are chosen after opening a session.": "Los modelos de Copilot se eligen al abrir una sesión.",
   "Remove from this computer anyway?": "¿Quitar de este equipo de todos modos?",
   "Antigravity could not sign out. {reason} Removing the local profile leaves Google access unrevoked.": "Antigravity no ha podido cerrar sesión. {reason} Si quitas el perfil local, el acceso de Google seguirá autorizado.",
   "Remove locally": "Quitar de este equipo",
@@ -22,6 +23,13 @@ export const accounts: Record<string, string> = {
   "Could not be asked": "No se pudo consultar",
   "Rename": "Renombrar",
   "+ Add account": "+ Añadir cuenta",
+  "Unlimited premium interactions": "Interacciones premium ilimitadas",
+  "Premium interactions": "Interacciones premium",
+  "Chat messages": "Mensajes de chat",
+  "Code completions": "Sugerencias de código",
+  "Unlimited chat messages": "Mensajes de chat ilimitados",
+  "Unlimited code completions": "Sugerencias de código ilimitadas",
+  "Copilot uses its main CLI account. Run `copilot login` in a terminal to change it.": "Copilot usa la cuenta principal de su CLI. Ejecuta `copilot login` en un terminal para cambiarla.",
   "A name, like Work or Personal": "Un nombre, como Trabajo o Personal",
   "Add and sign in": "Añadir e iniciar sesión",
   "Moving to the other account": "Pasando a la otra cuenta",

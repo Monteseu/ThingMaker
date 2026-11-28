@@ -309,6 +309,13 @@ impl AppState {
                 })?;
                 Ok(ResolvedProvider { provider, program, prefix_args: Vec::new(), source: "discovered" })
             }
+            Provider::Copilot => {
+                let override_path = std::env::var_os(thingmaker_supervisor::agents::copilot::launch::PROGRAM_ENV).map(PathBuf::from);
+                let source = if configured.is_some() { "settings" } else if override_path.is_some() { "environment" } else { "discovered" };
+                let program = thingmaker_supervisor::agents::copilot::launch::locate(&home, configured.as_ref().map(|location| location.program.as_path()), override_path)
+                    .ok_or_else(|| DesktopError::not_ready("GitHub Copilot CLI is not installed. Install `@github/copilot` or set THINGMAKER_COPILOT, then run `copilot login`."))?;
+                Ok(ResolvedProvider { provider, program, prefix_args: Vec::new(), source })
+            }
             Provider::Gemini => {
                 if let Some(location) = configured {
                     return Ok(ResolvedProvider { provider, program: location.program, prefix_args: Vec::new(), source: "settings" });

@@ -27,7 +27,7 @@ pub enum Connection {
 impl Connection {
     pub async fn spawn(launch: &AgentLaunch, spec: LaunchSpec, generation: u64) -> Result<(Connection, mpsc::Receiver<Incoming>), TransportError> {
         match launch {
-            AgentLaunch::Claude(_) => Transport::spawn(spec, generation).await.map(|(transport, incoming)| (Connection::Acp(transport), incoming)),
+            AgentLaunch::Claude(_) | AgentLaunch::Copilot(_) => Transport::spawn(spec, generation).await.map(|(transport, incoming)| (Connection::Acp(transport), incoming)),
             AgentLaunch::Codex(options) => CodexBridge::spawn(spec, generation, options.clone())
                 .await
                 .map(|(bridge, incoming)| (Connection::Codex(bridge), incoming)),

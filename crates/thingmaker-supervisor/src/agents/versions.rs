@@ -40,7 +40,7 @@ const OUTPUT_TAIL_BYTES: usize = 4096;
 pub fn tested_with(provider: Provider) -> Option<&'static str> {
     match provider {
         Provider::Claude => Some("0.89.1"),
-        Provider::Codex | Provider::Gemini | Provider::Local => None,
+        Provider::Codex | Provider::Gemini | Provider::Copilot | Provider::Local => None,
     }
 }
 
@@ -157,6 +157,7 @@ pub fn channel(provider: Provider, program: &Path, prefix_args: &[String]) -> Ch
             }
             Channel::SelfUpdate { program: program.to_path_buf() }
         }
+        Provider::Copilot => Channel::Unmanaged { hint: "Update with `npm install -g @github/copilot@latest`.".into() },
         Provider::Gemini => Channel::SelfUpdate { program: program.to_path_buf() },
     }
 }
@@ -259,6 +260,7 @@ fn npm(install: &NpmInstall, args: &[&str]) -> Command {
 }
 
 fn version_of(provider: Provider, program: &Path) -> Result<String, String> {
+    if provider == Provider::Copilot { return super::copilot::probe::version(program, VERSION_TIMEOUT); }
     let mut command = command(program, None);
     // Asking agy its version must not set it updating itself; `update` below
     // is the one call that leaves it free to.
@@ -365,7 +367,7 @@ pub fn install_package(provider: Provider) -> Option<&'static str> {
     match provider {
         Provider::Claude => Some(super::claude::launch::ADAPTER_PACKAGE),
         Provider::Codex => Some("@openai/codex"),
-        Provider::Gemini | Provider::Local => None,
+        Provider::Gemini | Provider::Copilot | Provider::Local => None,
     }
 }
 

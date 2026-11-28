@@ -164,17 +164,17 @@ export type ExitInfo = { status: number | null; signal: number | null; forced: b
 /** The subscriptions the desktop drives. Each runs its own official program:
  *  `claude` is Claude Code (through claude-agent-acp), `codex` is Codex
  *  (through its app-server). */
-export type Provider = "claude" | "codex" | "gemini" | "local";
-export const PROVIDERS: readonly Provider[] = ["claude", "codex", "gemini", "local"] as const;
-export const PROVIDER_LABELS: Record<Provider, string> = { claude: "Claude Code", codex: "Codex", gemini: "Gemini", local: "Local Models" };
+export type Provider = "claude" | "codex" | "gemini" | "copilot" | "local";
+export const PROVIDERS: readonly Provider[] = ["claude", "codex", "gemini", "copilot", "local"] as const;
+export const PROVIDER_LABELS: Record<Provider, string> = { claude: "Claude Code", codex: "Codex", gemini: "Gemini", copilot: "GitHub Copilot", local: "Local Models" };
 /** Two letters for a tag, so the provider is visible without a second line. */
-export const PROVIDER_SHORT: Record<Provider, string> = { claude: "CC", codex: "CX", gemini: "GM", local: "LM" };
+export const PROVIDER_SHORT: Record<Provider, string> = { claude: "CC", codex: "CX", gemini: "GM", copilot: "CP", local: "LM" };
 /**
  * Providers that can lead a team. An orchestrator has to take the session's
  * own `team` MCP server. Gemini team sessions use native `agy acp` to receive
  * session-local servers without changing the user's shared configuration.
  */
-export const ORCHESTRATOR_PROVIDERS: readonly Provider[] = ["claude", "codex", "gemini", "local"] as const;
+export const ORCHESTRATOR_PROVIDERS: readonly Provider[] = ["claude", "codex", "gemini", "copilot", "local"] as const;
 
 /**
  * Local Models: models in Ollama on this computer, free and private. A model
@@ -188,7 +188,7 @@ export const ORCHESTRATOR_PROVIDERS: readonly Provider[] = ["claude", "codex", "
  * everything but the sign-in. The active one is used by new sessions.
  */
 export type AccountView = { id: string; provider: Provider; label: string; isDefault: boolean; active: boolean; conflicts?: string[]; auth?: ProviderAuthStatus };
-export const ACCOUNT_PROVIDERS: readonly Provider[] = ["claude", "codex", "gemini"] as const;
+export const ACCOUNT_PROVIDERS: readonly Provider[] = ["claude", "codex", "gemini", "copilot"] as const;
 
 export type LocalKind = "chat" | "agent";
 
@@ -1665,6 +1665,9 @@ export type UiPrefs = {
   updateReminder?: boolean;
   /** Save a private, readable context archive on a leader change. Absent means on. */
   autoContinuity?: boolean;
+  /** Colour scheme: the original dark, a soft grey, or a brighter near-white light.
+   *  Absent on older saves: dark, so the look never changes under anyone. */
+  theme?: "dark" | "gray" | "light";
 };
 
 /**

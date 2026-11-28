@@ -30,6 +30,7 @@ pub mod support;
 pub mod terminal;
 pub mod ultrareview;
 pub mod local;
+mod team_mcp;
 #[cfg(windows)]
 mod local_mcp;
 pub mod accounts;

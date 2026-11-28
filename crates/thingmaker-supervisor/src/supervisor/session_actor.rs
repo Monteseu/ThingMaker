@@ -128,7 +128,6 @@ pub struct SessionActorConfig {
     pub builtin_web: bool,
     pub resource_files: Option<Arc<tempfile::TempDir>>,
     /// Dropping the last actor configuration closes its local team endpoint.
-    #[cfg(windows)]
     pub local_team_lifetime: Option<Arc<tokio::sync::oneshot::Sender<()>>>,
     /// Closing the control pipe stops the Windows stdio bridge and its children.
     pub local_mcp_bridge: Option<Arc<tokio::process::ChildStdin>>,
@@ -155,7 +154,6 @@ impl SessionActorConfig {
             before_prompt: None,
             builtin_web: false,
             resource_files: None,
-            #[cfg(windows)]
             local_team_lifetime: None,
             local_mcp_bridge: None,
         }
@@ -417,6 +415,9 @@ impl SessionActor {
     /// Launches the agent, negotiates ACP and attaches the session. Returns
     /// only after the attachment is ready or has failed with a typed error.
     pub async fn open(mut config: SessionActorConfig) -> Result<SessionActor, DesktopError> {
+        if let AgentLaunch::Copilot(options) = &mut config.launch {
+            options.prepare_workspace()?;
+        }
         // A Gemini attachment handed session-local MCP servers has to be on
         // native ACP: the stream-json bridge cannot forward them. The host
         // hands one only to a Gemini session that leads a team; this keeps
@@ -1181,7 +1182,7 @@ impl ActorState {
                     let event = match &self.launch {
                         AgentLaunch::Claude(_) => claude::subagents::subagent_event(&merged, model.as_deref(), now_unix_ms()),
                         AgentLaunch::Codex(_) => codex::subagents::subagent_event(&merged, model.as_deref(), now_unix_ms()),
-                        AgentLaunch::Gemini(_) => None,
+                        AgentLaunch::Gemini(_) | AgentLaunch::Copilot(_) => None,
                     };
                     if let Some(event) = event {
                         self.emit(SessionEvent::RuntimeEvent(event));
@@ -1619,11 +1620,12 @@ impl ActorState {
         self.open_tools.clear();
         self.last_progress = Instant::now();
         self.submitted_prompts.insert(request_id.clone(), blocks.clone());
-        if let AgentLaunch::Gemini(options) = &self.launch
-            && let Some(guidance) = options.initial_prompt_prefix.as_deref()
-        {
-            blocks.insert(0, text_block(guidance));
-        }
+        let guidance = match &self.launch {
+            AgentLaunch::Gemini(options) => options.initial_prompt_prefix.as_deref(),
+            AgentLaunch::Copilot(options) => options.initial_prompt_prefix.as_deref(),
+            _ => None,
+        };
+        if let Some(guidance) = guidance { blocks.insert(0, text_block(guidance)); }
         self.emit(SessionEvent::Submission {
             request_id: request_id.clone(),
             state: SubmissionState::Queued,
@@ -2055,8 +2057,10 @@ impl ActorState {
             },
             Internal::PromptWritten { request_id } => {
                 // Keep guidance available if dispatch failed before writing.
-                if let AgentLaunch::Gemini(options) = &mut self.launch {
-                    options.initial_prompt_prefix = None;
+                match &mut self.launch {
+                    AgentLaunch::Gemini(options) => options.initial_prompt_prefix = None,
+                    AgentLaunch::Copilot(options) => options.initial_prompt_prefix = None,
+                    _ => {}
                 }
                 self.emit(SessionEvent::Submission {
                     request_id: request_id.clone(),
@@ -2468,7 +2472,11 @@ async fn run_loop(
     let control = state.config.timeouts.control;
     let claude_adapter = matches!(&state.config.launch, AgentLaunch::Claude(options)
         if options.local.as_ref().is_none_or(|local| local.kind == crate::agents::local::LocalKind::Agent));
-    let handshake = capabilities::initialize_params(&state.config.client, claude_adapter);
+    let mut handshake = capabilities::initialize_params(&state.config.client, claude_adapter);
+    if matches!(state.config.launch, AgentLaunch::Copilot(_)) {
+        // A named ACP client otherwise defaults to person-driven in Copilot.
+        handshake["clientCapabilities"]["_meta"] = json!({"github.com/copilot":{"interactive":false}});
+    }
     state.spawn_request("initialize", handshake, control, None, Internal::InitializeResult);
     let mut tick = time::interval(Duration::from_secs(1));
     let mut incoming_open = true;

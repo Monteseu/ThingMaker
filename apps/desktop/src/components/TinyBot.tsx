@@ -28,6 +28,7 @@ const BRIGHT: Record<Provider, Palette> = {
   codex: { ball: "#7b98ff", ear: "#5a7cf2", shell: "#e1e8ff", shade: "#a3b4ee", visor: "#151a33", eye: "#d6e2ff", chassis: "#c7d3fb", stick: "#5d6aa6" },
   gemini: { ball: "#4285f4", ear: "#4285f4", shell: "#f7f8fc", shade: "#cfd5e2", visor: "#1a1c24", eye: "#8ab4f8", chassis: "#e6e9f1", stick: "#9aa0b0" },
   local: { ball: "#5fbf7a", ear: "#3f9d5c", shell: "#d9f2e1", shade: "#9cc9aa", visor: "#13241a", eye: "#c9f7d8", chassis: "#bfe3cb", stick: "#4f7a5e" },
+  copilot: { ball: "#a879e8", ear: "#8056c1", shell: "#eee4ff", shade: "#b9a1d6", visor: "#221a31", eye: "#e5ccff", chassis: "#dbcaef", stick: "#76618e" },
 };
 
 /** Done: the provider's colours, dimmed, so a finished robot still says whose it is. */
@@ -36,6 +37,7 @@ const DIM: Record<Provider, Palette> = {
   codex: { ball: "#4b5478", ear: "#424a6b", shell: "#656b80", shade: "#4f5468", visor: "#1e2030", eye: "#858ba3", chassis: "#5a6075", stick: "#40455a" },
   gemini: { ball: "#55585f", ear: "#55585f", shell: "#7c7f87", shade: "#5f626a", visor: "#23252b", eye: "#8f93a0", chassis: "#6c6f77", stick: "#44474e" },
   local: { ball: "#4b5f51", ear: "#43554a", shell: "#6b7a70", shade: "#526157", visor: "#1d241f", eye: "#87978c", chassis: "#5f6c63", stick: "#414c45" },
+  copilot: { ball: "#625273", ear: "#554765", shell: "#796e85", shade: "#60556b", visor: "#251f2c", eye: "#a89ab6", chassis: "#6d6079", stick: "#4d4357" },
 };
 
 /** Gemini's ears, top to bottom and left then right: the spark's colours. */
@@ -108,6 +110,22 @@ const HEADS: Record<Provider, string[]> = {
     "..DHHHHHHHHHD..",
     "...DDDDDDDDD...",
   ],
+
+  copilot: [
+    "......AAA......",
+    "......AAA......",
+    ".......S.......",
+    "....HHHHHHH....",
+    "..HHHHHHHHHHH..",
+    ".EHHVVVVVVVHHE.",
+    ".EHVVVVVVVVVHE.",
+    ".EHVVVVVVVVVHE.",
+    ".EHVVVVVVVVVHE.",
+    "..HVVVVVVVVVH..",
+    "..HHHHHHHHHHH..",
+    "...DDHHHHHDD...",
+    "....DDDDDDD....",
+  ],
 };
 const BODY = [".....BBBBB.....", "....BBBBBBB....", "....BB...BB...."];
 
@@ -141,6 +159,14 @@ const FACES: Record<Provider, Array<[number, number]>> = {
   ],
   // Two square eyes and a straight mouth.
   local: [
+    [5, 6],
+    [9, 6],
+    [6, 8],
+    [7, 8],
+    [8, 8],
+  ],
+
+  copilot: [
     [5, 6],
     [9, 6],
     [6, 8],

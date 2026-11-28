@@ -27,6 +27,7 @@ const USES = (): Record<Provider, string> => ({
   claude: t("Uses your Claude Pro, Max, Team or Enterprise plan"),
   codex: t("Uses your ChatGPT plan"),
   gemini: t("Uses your Google account through Antigravity CLI"),
+  copilot: "GitHub Copilot CLI (copilot login)",
   local: t("Runs models on this computer through Ollama: free, and private"),
 });
 
@@ -35,6 +36,7 @@ const SIGNS_IN_WITH = (): Record<Provider, string> => ({
   claude: t("Your Claude plan, through its ACP adapter"),
   codex: t("Your ChatGPT plan, through its app-server"),
   gemini: t("Your Google account, through Antigravity CLI"),
+  copilot: "GitHub Copilot CLI (copilot login)",
   local: t("Ollama on this computer; there is nothing to sign in to"),
 });
 
@@ -205,6 +207,7 @@ function ProviderRow({ info }: { info: ProviderInfo }) {
             {version?.updateAvailable && !updating && <span className="chip small chip-update">{t("update")}</span>}
           </div>
           <div className="provider-sub">
+            {info.resolved && provider === "copilot" && <span>{t("Run copilot in your terminal, then use /login. Sign-in is managed by the CLI.")}</span>}
             {auth?.loggedIn === true && !signingIn && <Meters provider={provider} />}
             {info.resolved && auth?.loggedIn === false && !signingIn && <span>{USES()[provider]}</span>}
             {!info.resolved && <span>{t("ThingMaker could not find its program.")}</span>}
@@ -305,7 +308,7 @@ function ProviderRow({ info }: { info: ProviderInfo }) {
                   {model.efforts.length > 0 && <span className="small muted">{t("effort {levels}", { levels: model.efforts.join(", ") })}</span>}
                 </span>
               ))}
-              {models?.length === 0 && <span className="small muted">{t("The account listed no models; it is probably not signed in.")}</span>}
+              {models?.length === 0 && <span className="small muted">{provider === "copilot" ? t("Copilot models are chosen after opening a session.") : t("The account listed no models; it is probably not signed in.")}</span>}
             </div>
           )}
           {details && (

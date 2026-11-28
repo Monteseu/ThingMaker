@@ -52,6 +52,7 @@ fn launch(provider: Provider, root: &std::path::Path, model: Option<String>, eff
             options.permission_mode = PermissionStance::ReadOnly;
             (LaunchTarget::executable(agy), AgentLaunch::Gemini(options))
         }
+        Provider::Copilot => unimplemented!("Copilot standalone is exercised in copilot_peer.rs"),
         Provider::Local => unimplemented!("local models are exercised in local_chat.rs"),
     }
 }
@@ -75,7 +76,7 @@ async fn run(orchestrator: Provider, worker: WorkerSlot) {
     let (model, effort) = match orchestrator {
         Provider::Claude => (Some("sonnet".to_string()), Some("low".to_string())),
         Provider::Codex => (Some("gpt-6-luna".to_string()), Some("low".to_string())),
-        Provider::Gemini | Provider::Local => unreachable!("not orchestrated in this test"),
+        Provider::Gemini | Provider::Copilot | Provider::Local => unreachable!("not orchestrated in this test"),
     };
     let (target, mut agent) = launch(orchestrator, scratch.path(), model, effort);
     let key = agent.session_id();
@@ -92,7 +93,7 @@ async fn run(orchestrator: Provider, worker: WorkerSlot) {
             options.config.insert(MULTI_AGENT_FEATURE.into(), serde_json::Value::Bool(false));
             options.developer_instructions = Some(orchestrator_guidance(true));
         }
-        AgentLaunch::Gemini(_) => unreachable!("Gemini cannot orchestrate"),
+        AgentLaunch::Gemini(_) | AgentLaunch::Copilot(_) => unreachable!("Gemini cannot orchestrate"),
     }
     config.launch = agent;
     let actor = SessionActor::open(config).await.expect("orchestrator attached");

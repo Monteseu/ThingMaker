@@ -28,6 +28,14 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("accounts in Providers", () => {
+  it("shows Copilot main-account guidance without offering isolated accounts", async () => {
+    vi.mocked(api.accountsList).mockResolvedValue([{ ...main, provider: "copilot" }]);
+    expect(ACCOUNT_PROVIDERS).toContain("copilot");
+    render(<ProviderAccounts provider="copilot" />);
+    expect(screen.getByText(/Copilot uses its main CLI account/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "+ Add account" })).toBeNull();
+    await waitFor(() => expect(api.accountsList).toHaveBeenCalledWith("copilot"));
+  });
   it("keeps the current catalog when a previous account answers after a switch or removal", async () => {
     const model = (id: string) => ({ id, name: id, needsCredits:false, efforts:[], inputImage:false, isDefault:false });
     const account = useStore.getState();

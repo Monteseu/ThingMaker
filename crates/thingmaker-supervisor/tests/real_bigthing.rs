@@ -86,7 +86,7 @@ impl RealHost {
                 config.environment = config.environment.clone().with_set("MCP_TOOL_TIMEOUT", "1800000");
             }
             AgentLaunch::Codex(options) => options.developer_instructions = Some(orchestrator_guidance(false)),
-            AgentLaunch::Gemini(_) => unreachable!(),
+            AgentLaunch::Gemini(_) | AgentLaunch::Copilot(_) => unreachable!(),
         }
         config.launch = agent;
         let actor = SessionActor::open(config).await?;

@@ -446,12 +446,13 @@ export const AGENT_LABEL: Record<Provider, string> = PROVIDER_LABELS;
  * needs and is not quite the same word as the agent: Claude Code spends the
  * Claude plan, Codex the ChatGPT one.
  */
-export const ACCOUNT_LABEL: Record<Provider, string> = { claude: "Claude", codex: "ChatGPT", gemini: "Google", local: "this computer" };
+export const ACCOUNT_LABEL: Record<Provider, string> = { claude: "Claude", codex: "ChatGPT", gemini: "Google", copilot: "GitHub", local: "this computer" };
 
 const ACCOUNT_HINT: Record<Provider, string> = {
   claude: t("This run is on Claude Code, which spends the Claude subscription. Its own subagents spend the same account."),
   codex: t("This run is on Codex, which spends the ChatGPT subscription. Its own subagents spend the same account."),
   gemini: t("This run is on Gemini through Antigravity, which spends the Google account's Antigravity quota."),
+  copilot: "GitHub Copilot CLI",
   local: t("This run is on a local model through Ollama: it is free, and its work stays on this computer."),
 };
 

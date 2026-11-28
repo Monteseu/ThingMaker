@@ -10,6 +10,15 @@ const message = (role: "user" | "agent" | "thought", text: string): Card => ({ k
 const context: [string, string, string] = ["Previous answer", "My message", "Last answer"];
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.resetAllMocks(); });
 
+it("absorbs an unsupported Copilot suggestion without disrupting the composer", async () => {
+  vi.useFakeTimers();
+  vi.mocked(api.replySuggest).mockRejectedValue({ code: "UNSUPPORTED", message: "Copilot reply suggestions are not supported yet" });
+  const { result } = renderHook(() => useReplySuggestion("copilot-session", "auto", context, true, "", "copilot"));
+  await act(() => vi.advanceTimersByTimeAsync(300));
+  expect(api.replySuggest).toHaveBeenCalledWith(context);
+  expect(result.current.suggestion).toBe("");
+});
+
 it("sends only the last reply, last user message and reply before it, in chronological order", () => {
   const cards: Card[] = [message("user", "older secret"), message("agent", "old answer"), message("agent", context[0]), message("user", context[1]), message("agent", "working commentary"), { kind: "tool", key: "tool", toolCallId: "private tool output" }, message("thought", "private reasoning"), message("agent", context[2])];
   expect(suggestionMessages(cards)).toEqual(context);

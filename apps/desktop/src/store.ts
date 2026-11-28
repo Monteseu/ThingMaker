@@ -8,6 +8,7 @@
  * when a turn settles, an agent asks for input, or its process exits.
  */
 import { create } from "zustand";
+import { copilotQuotaLabel } from "./copilotQuota";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type {
@@ -178,7 +179,19 @@ export type OdysseyRuntime = {
 
 export const SESSION_TABS: SessionTab[] = ["transcript", "agents", "odyssey", "terminal", "files", "changes", "context", "artifacts", "images", "ultrareview"];
 
-export const DEFAULT_UI_PREFS: UiPrefs = { enterSends: true, reducedMotion: "system", transcriptPage: 50, followUp: "queue" };
+export const DEFAULT_UI_PREFS: UiPrefs = { enterSends: true, reducedMotion: "system", transcriptPage: 50, followUp: "queue", theme: "dark" };
+
+// Older saves could hold theme "system", which followed the OS before it was
+// dropped for three named themes. Keep that save readable: map it to the look
+// it was showing (light on a light OS, otherwise dark), and treat any other
+// unknown value as the default dark so nothing ends up unselected.
+export function normalizeTheme(theme: unknown): NonNullable<UiPrefs["theme"]> {
+  if (theme === "dark" || theme === "gray" || theme === "light") return theme;
+  if (theme === "system" && typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: light)").matches) {
+    return "light";
+  }
+  return "dark";
+}
 
 export type OpenMode = { mode: "new" } | { mode: "resume"; session_id: string };
 
@@ -942,6 +955,7 @@ export function usageFromQuota(quota: QuotaSnapshot): UsageSnapshot | null {
     .filter((window) => window.usedPercent !== undefined)
     .sort((a, b) => (a.windowMinutes ?? Number.MAX_SAFE_INTEGER) - (b.windowMinutes ?? Number.MAX_SAFE_INTEGER));
   const toWindow = (window: QuotaSnapshot["windows"][number]) => ({
+    ...(quota.provider === "copilot" ? { label: copilotQuotaLabel(window.kind) } : {}),
     ...(quota.provider === "gemini" ? { label: window.kind.replace(/^gemini-/, "Gemini · ").replace(/^3p-/, "Claude/GPT · ").replace(/weekly$/, "7d").replace(/five-hour$/, "5h") } : {}),
     usedPercent: window.usedPercent ?? 100,
     windowSeconds: (window.windowMinutes ?? 0) * 60,
@@ -952,7 +966,7 @@ export function usageFromQuota(quota: QuotaSnapshot): UsageSnapshot | null {
   const windows = measured.length > 0 ? measured : quota.windows;
   return {
     fetchedAtUnixMs: quota.observedAtUnixMs,
-    ...(quota.provider === "gemini" ? { windows: windows.map(toWindow) } : {}),
+    ...(quota.provider === "gemini" || quota.provider === "copilot" ? { windows: windows.map(toWindow) } : {}),
     ...(quota.plan ? { planType: quota.plan } : {}),
     allowed: !rejected,
     limitReached: rejected,
@@ -1381,6 +1395,7 @@ export const useStore = create<State>((set, get) => ({
       // checks foreground ownership before starting a CLI, including for calls from the phone.
       const usageInterval = 5 * 60_000;
       const readUsage = () => {
+        // Local is free; every other provider can report account quota.
         for (const provider of PROVIDERS) if (provider !== "local") void get().refreshUsage(provider);
       };
       if (!IS_REMOTE && navigator.userAgent.includes("Windows")) {
@@ -1661,6 +1676,7 @@ export const useStore = create<State>((set, get) => ({
     // got an answer is the positive evidence the refusal was waiting for —
     // but leaves a measured reading in place, so the sidebar keeps it.
     if (snapshot) usage[quota.provider] = snapshot;
+    else if (quota.provider === "copilot" && quota.windows.some((window) => window.kind.endsWith("_unlimited"))) usage.copilot = null;
     else if (quota.status !== "rejected" && usage[quota.provider]?.limitReached) usage[quota.provider] = null;
     set({ quotas, usage });
   },
@@ -2509,7 +2525,12 @@ export const useStore = create<State>((set, get) => ({
   async loadUiPrefs() {
     try {
       const stored = await api.prefGet<Partial<UiPrefs>>("ui_prefs");
-      if (stored) set({ uiPrefs: { ...DEFAULT_UI_PREFS, ...stored } });
+      if (stored) {
+        const theme = normalizeTheme(stored.theme);
+        set({ uiPrefs: { ...DEFAULT_UI_PREFS, ...stored, theme } });
+        // Rewrite the save once so a dropped "system" never lingers on disk.
+        if (stored.theme !== undefined && stored.theme !== theme) void api.prefSet("ui_prefs", { ...DEFAULT_UI_PREFS, ...stored, theme });
+      }
       set({ sessionDefaults: readSessionDefaults(await api.prefGet<unknown>("session_defaults")) });
     } catch {
       // Preferences are optional conveniences.

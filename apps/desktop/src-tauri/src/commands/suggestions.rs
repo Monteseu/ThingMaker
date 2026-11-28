@@ -127,6 +127,7 @@ fn arguments_for(provider: Provider, model: &str, scratch: &std::path::Path, ins
             "skip_host_skill_discovery",
             "-",
         ],
+        Provider::Copilot => return Err(DesktopError::unsupported("Copilot reply suggestions are not supported yet")),
         Provider::Gemini => {
             let agents = scratch.join(".agents/agents");
             std::fs::create_dir_all(&agents).map_err(|error| DesktopError::io(error.to_string()))?;

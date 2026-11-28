@@ -293,6 +293,12 @@ pub fn relay_to(path: &Path, token: &str, input: impl BufRead + Send + 'static, 
     })
 }
 
+/// The same session's team server, as ACP's HTTP transport and header array.
+pub fn http_server_entry(url: &str, token: &str) -> Value {
+    json!({"name": mcp::SERVER_NAME, "type": "http", "url": url,
+        "headers": [{"name": "Authorization", "value": format!("Bearer {token}")}]})
+}
+
 /// The ACP `mcpServers` entry that starts the relay for one session.
 pub fn server_entry(program: &Path, args: &[String], socket: &Path, token: &str) -> Value {
     json!({

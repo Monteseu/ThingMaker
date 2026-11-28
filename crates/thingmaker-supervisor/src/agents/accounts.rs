@@ -46,6 +46,7 @@ pub fn folder_variable(provider: Provider) -> Option<&'static str> {
     match provider {
         Provider::Claude => Some("CLAUDE_CONFIG_DIR"),
         Provider::Codex => Some("CODEX_HOME"),
+        Provider::Copilot => Some("COPILOT_HOME"),
         Provider::Gemini | Provider::Local => None,
     }
 }
@@ -58,6 +59,7 @@ pub fn main_folder(provider: Provider, home: &Path) -> Option<PathBuf> {
     let variable = folder_variable(provider)?;
     let fallback = match provider {
         Provider::Claude => home.join(".claude"),
+        Provider::Copilot => home.join(".copilot"),
         _ => home.join(".codex"),
     };
     Some(std::env::var_os(variable).map(PathBuf::from).filter(|path| path.is_absolute()).unwrap_or(fallback))
@@ -95,6 +97,11 @@ const CLAUDE_IDENTITY_KEYS: &[&str] = &["oauthAccount", "userID", "primaryApiKey
 pub fn share(provider: Provider, main: &Path, folder: &Path, home: &Path) -> std::io::Result<()> {
     if provider == Provider::Gemini {
         return share_gemini(main, folder, home);
+    }
+    // Copilot may use the OS keyring or gh auth outside COPILOT_HOME.
+    // Folder isolation is not an established multi-account auth boundary.
+    if provider == Provider::Copilot {
+        return Err(std::io::Error::other("Copilot supports only its main account here; use copilot login"));
     }
     std::fs::create_dir_all(folder)?;
     if main.is_dir() {
@@ -422,6 +429,15 @@ pub fn read_accounts(value: Option<Value>) -> Vec<Account> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn copilot_maps_configuration_but_does_not_claim_folder_auth_isolation() {
+        assert_eq!(folder_variable(Provider::Copilot), Some("COPILOT_HOME"));
+        assert!(!supports_accounts(Provider::Copilot));
+        let directory = tempfile::tempdir().unwrap();
+        assert!(share(Provider::Copilot, directory.path(), &directory.path().join("extra"), directory.path()).is_err());
+        assert!(!directory.path().join("extra").exists());
+    }
     use serde_json::json;
 
     #[test]

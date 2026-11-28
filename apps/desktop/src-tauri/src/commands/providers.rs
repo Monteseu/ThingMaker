@@ -15,7 +15,7 @@ use thingmaker_supervisor::{
         Provider,
         auth::{ProviderAuthStatus, ProviderModel},
         auth::run_bounded,
-        claude, codex, gemini,
+        claude, codex, gemini, copilot,
         login::{LoginEvent, run_login_process},
         versions::{self, ProviderVersion},
     },
@@ -44,6 +44,7 @@ pub struct ProviderInfo {
 /// person's own when `None`).
 pub(crate) fn auth_status(resolved: &ResolvedProvider, folder: Option<&Path>, gemini_accounts: bool) -> ProviderAuthStatus {
     match resolved.provider {
+        Provider::Copilot => copilot::quota::read_status(&resolved.program, folder, copilot::quota::PROBE_TIMEOUT),
         Provider::Claude => claude::auth::read_status(&resolved.program, &resolved.prefix_args, folder, Duration::from_secs(30)),
         Provider::Codex => codex::probe::read_status(&resolved.program, folder, Duration::from_secs(30)),
         Provider::Gemini => gemini::probe::read_status_with_identity(&resolved.program, folder, Duration::from_secs(30), || gemini_accounts && can_probe_quota()),
@@ -217,6 +218,7 @@ pub fn provider_login_start(provider: Provider, on_event: Channel<LoginEvent>, a
     let (args, environment) = match provider {
         Provider::Claude => (claude::auth::login_args(&resolved.prefix_args, true), claude_environment(folder.as_deref())),
         Provider::Codex => (codex::probe::login_args(), codex::probe::environment(folder.as_deref()).with_program_dir(&resolved.program)),
+        Provider::Copilot => return Err(DesktopError::unsupported("Run `copilot login` in a terminal.")),
         Provider::Gemini => return Err(DesktopError::unsupported(gemini::probe::SIGN_IN_HINT)),
         Provider::Local => return Err(DesktopError::unsupported("Local Models need no sign-in: start Ollama instead.")),
     };
@@ -309,6 +311,10 @@ pub async fn provider_models(provider: Provider, state: State<'_, AppState>) -> 
     tauri::async_runtime::spawn_blocking(move || match provider {
         Provider::Claude => claude::auth::read_models_for_account(&resolved.program, &resolved.prefix_args, &scratch, folder.as_deref(), Duration::from_secs(45)).map_err(DesktopError::io),
         Provider::Codex => codex::probe::read_models(&resolved.program, folder.as_deref(), Duration::from_secs(45)).map_err(DesktopError::io),
+        // Copilot does not list models ahead of a session: they arrive as the
+        // `model` configOption when `session/new` answers (auto on Free). An
+        // empty catalog keeps the sign-in panel from surfacing a false error.
+        Provider::Copilot => Ok(Vec::new()),
         Provider::Gemini => gemini::probe::read_models_for_account(&resolved.program, folder.as_deref(), Duration::from_secs(45)).map_err(DesktopError::io),
         Provider::Local => {
             use thingmaker_supervisor::agents::local::{catalog, ollama};
@@ -372,6 +378,7 @@ pub async fn provider_quota(provider: Provider, state: State<'_, AppState>) -> C
             Provider::Gemini => {
                 gemini::quota::read_quota_while_active(&resolved.program, folder.as_deref(), Duration::from_secs(30), can_probe_quota)
             }
+            Provider::Copilot => return Ok(copilot::quota::read_quota(&resolved.program, folder.as_deref(), copilot::quota::PROBE_TIMEOUT, can_probe_quota)),
             Provider::Local => return Err(DesktopError::unsupported("Local Models are free and have no quota.")),
         }
         .map(Some)
@@ -400,6 +407,7 @@ pub async fn provider_logout(provider: Provider, account: Option<String>, state:
             let folder = folder.as_deref().ok_or_else(|| DesktopError::unsupported("Sign out of the main account in the Antigravity app."))?;
             return gemini::probe::logout_for_account(&resolved.program, folder, Duration::from_secs(15)).await.map_err(DesktopError::io);
         }
+        Provider::Copilot => return Err(DesktopError::unsupported("Copilot sign-out is not managed by ThingMaker yet.")),
         Provider::Local => return Err(DesktopError::unsupported("Local Models have no account to sign out of.")),
     };
     let program = resolved.program;

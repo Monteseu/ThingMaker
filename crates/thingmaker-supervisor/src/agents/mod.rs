@@ -17,6 +17,7 @@ pub mod accounts;
 pub mod auth;
 pub mod claude;
 pub mod codex;
+pub mod copilot;
 pub mod events;
 pub mod gemini;
 pub mod local;
@@ -30,7 +31,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use self::{claude::launch::ClaudeLaunchOptions, codex::launch::CodexLaunchOptions, gemini::launch::GeminiLaunchOptions};
+use self::{claude::launch::ClaudeLaunchOptions, codex::launch::CodexLaunchOptions, gemini::launch::GeminiLaunchOptions, copilot::CopilotLaunchOptions};
 
 /// What an attachment may do without asking, decided once from the
 /// workspace's trust state (§2.2).
@@ -71,12 +72,14 @@ pub enum Provider {
     /// mode, and an orchestrator on native `agy acp`, the only mode that
     /// takes a session's own MCP server.
     Gemini,
+    /// GitHub Copilot CLI on native ACP.
+    Copilot,
     /// Models in Ollama on this computer: free, and private.
     Local,
 }
 
 impl Provider {
-    pub const ALL: [Provider; 4] = [Provider::Claude, Provider::Codex, Provider::Gemini, Provider::Local];
+    pub const ALL: [Provider; 5] = [Provider::Claude, Provider::Codex, Provider::Gemini, Provider::Copilot, Provider::Local];
 
     /// Whether a session on this provider can lead a team: it has to take
     /// the session's own `team` MCP server. Gemini takes one only over
@@ -104,6 +107,7 @@ impl Provider {
             Self::Claude => "claude",
             Self::Codex => "codex",
             Self::Gemini => "gemini",
+            Self::Copilot => "copilot",
             Self::Local => "local",
         }
     }
@@ -116,6 +120,7 @@ impl Provider {
             "claude" => Some(Self::Claude),
             "codex" => Some(Self::Codex),
             "gemini" => Some(Self::Gemini),
+            "copilot" => Some(Self::Copilot),
             "local" => Some(Self::Local),
             _ => None,
         }
@@ -127,6 +132,7 @@ impl Provider {
             Self::Claude => "Claude Code",
             Self::Codex => "Codex",
             Self::Gemini => "Gemini",
+            Self::Copilot => "GitHub Copilot",
             Self::Local => "Local Models",
         }
     }
@@ -141,6 +147,7 @@ pub enum AgentLaunch {
     Claude(ClaudeLaunchOptions),
     Codex(CodexLaunchOptions),
     Gemini(GeminiLaunchOptions),
+    Copilot(CopilotLaunchOptions),
 }
 
 impl AgentLaunch {
@@ -151,6 +158,7 @@ impl AgentLaunch {
             Self::Codex(options) if options.local => Provider::Local,
             Self::Codex(_) => Provider::Codex,
             Self::Gemini(_) => Provider::Gemini,
+            Self::Copilot(_) => Provider::Copilot,
         }
     }
 
@@ -159,6 +167,7 @@ impl AgentLaunch {
             Self::Claude(options) => &options.root,
             Self::Codex(options) => &options.root,
             Self::Gemini(options) => &options.root,
+            Self::Copilot(options) => &options.root,
         }
     }
 
@@ -167,6 +176,7 @@ impl AgentLaunch {
             Self::Claude(options) => options.arguments(),
             Self::Codex(options) => options.arguments(),
             Self::Gemini(options) => options.arguments(),
+            Self::Copilot(options) => options.arguments(),
         }
     }
 
@@ -183,6 +193,7 @@ impl AgentLaunch {
             Self::Claude(options) => options.resume.clone().unwrap_or_else(|| options.reserved.to_string()),
             Self::Codex(options) => options.resume.clone().unwrap_or_else(|| options.reserved.to_string()),
             Self::Gemini(options) => options.resume.clone().unwrap_or_else(|| options.reserved.to_string()),
+            Self::Copilot(options) => options.resume.clone().unwrap_or_else(|| options.reserved.to_string()),
         }
     }
 
@@ -192,6 +203,7 @@ impl AgentLaunch {
             Self::Claude(options) => options.resume.is_some(),
             Self::Codex(options) => options.resume.is_some(),
             Self::Gemini(options) => options.resume.is_some(),
+            Self::Copilot(options) => options.resume.is_some(),
         }
     }
 
@@ -201,6 +213,7 @@ impl AgentLaunch {
             Self::Claude(options) => options.permission_mode,
             Self::Codex(options) => options.permission_mode,
             Self::Gemini(options) => options.permission_mode,
+            Self::Copilot(options) => options.permission_mode,
         }
     }
 
@@ -211,6 +224,7 @@ impl AgentLaunch {
             Self::Claude(options) => claude::launch::mode_id(options.permission_mode),
             Self::Codex(options) => codex::launch::sandbox_mode(options.permission_mode),
             Self::Gemini(options) => gemini::launch::mode_id(options.permission_mode),
+            Self::Copilot(options) => copilot::launch::mode_id(options.permission_mode),
         }
     }
 
@@ -220,6 +234,7 @@ impl AgentLaunch {
             Self::Claude(options) => options.model.as_deref(),
             Self::Codex(options) => options.model.as_deref(),
             Self::Gemini(options) => options.model.as_deref(),
+            Self::Copilot(options) => options.model.as_deref(),
         }
     }
 
@@ -227,7 +242,7 @@ impl AgentLaunch {
     pub fn deferred_model_fallback(&self) -> Option<&str> {
         match self {
             Self::Claude(options) => options.model_fallback.as_deref(),
-            Self::Codex(_) | Self::Gemini(_) => None,
+            Self::Codex(_) | Self::Gemini(_) | Self::Copilot(_) => None,
         }
     }
 
@@ -237,6 +252,7 @@ impl AgentLaunch {
             Self::Claude(options) => options.effort.as_deref(),
             Self::Codex(options) => options.effort.as_deref(),
             Self::Gemini(options) => options.effort.as_deref(),
+            Self::Copilot(options) => options.effort.as_deref(),
         }
     }
 
@@ -245,7 +261,7 @@ impl AgentLaunch {
     pub fn session_meta(&self) -> Option<Value> {
         match self {
             Self::Claude(options) => options.session_meta(),
-            Self::Codex(_) | Self::Gemini(_) => None,
+            Self::Codex(_) | Self::Gemini(_) | Self::Copilot(_) => None,
         }
     }
 
@@ -275,6 +291,7 @@ impl AgentLaunch {
                 },
             },
             Self::Gemini(options) => gemini::launch::account_environment(options.account_home.as_deref()),
+            Self::Copilot(options) => options.environment(),
             Self::Codex(options) => {
                 let mut env = Vec::new();
                 if let Some(home) = &options.codex_home {

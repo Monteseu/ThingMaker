@@ -194,6 +194,13 @@ pub fn prepare_orchestrator(state: &AppState, key: &str, root: PathBuf, combo: &
             }
             options.developer_instructions = Some(guidance);
         }
+        AgentLaunch::Copilot(options) => {
+            let mut prompt = orchestrator_guidance(false);
+            if withheld {
+                prompt.push_str(" For delegated work, use only the selected team workers through the team tools; do not start native subagents.");
+            }
+            options.initial_prompt_prefix = Some(prompt);
+        }
         AgentLaunch::Gemini(options) => {
             // Native ACP's system-prompt extension has no established payload
             // contract here. Use an ordinary prompt block instead of guessing.
@@ -310,6 +317,7 @@ impl WorkerLauncher for HostLauncher {
                     config.environment = config.environment.clone().with_set("MCP_TOOL_TIMEOUT", CLAUDE_MCP_TOOL_TIMEOUT_MS);
                 }
             }
+            super::team_mcp::prepare(&state, &mut config).await?;
             #[cfg(windows)]
             super::local_mcp::prepare(&state, &mut config).await?;
             let web = super::web::prepare(&state, &mut config).await;

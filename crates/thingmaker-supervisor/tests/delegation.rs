@@ -89,6 +89,7 @@ impl WorkerLauncher for MockLauncher {
                 prefix.extend(self.codex_flags.iter().cloned());
                 (LaunchTarget { executable: python, prefix_args: prefix }, AgentLaunch::Codex(options))
             }
+            Provider::Copilot => return Box::pin(async { Err(DesktopError::unsupported("Copilot team workers are outside this fixture")) }),
             Provider::Gemini => {
                 let mut options = thingmaker_supervisor::agents::gemini::GeminiLaunchOptions::new(&spec.root, python.clone());
                 options.model = spec.slot.model.clone();

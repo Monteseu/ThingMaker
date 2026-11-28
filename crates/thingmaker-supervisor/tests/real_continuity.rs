@@ -102,7 +102,7 @@ fn leader(provider: Provider, root: &std::path::Path) -> (LaunchTarget, AgentLau
             options.developer_instructions = Some(orchestrator_guidance(true));
             (LaunchTarget::executable(codex()), AgentLaunch::Codex(options))
         }
-        Provider::Gemini | Provider::Local => unreachable!("not a leader in this test"),
+        Provider::Gemini | Provider::Copilot | Provider::Local => unreachable!("not a leader in this test"),
     }
 }
 

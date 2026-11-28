@@ -20,6 +20,7 @@ use thingmaker_supervisor::{
         PermissionStance, Provider,
         claude::launch::{CLAUDE_ORCHESTRATOR_EFFORT, CLAUDE_ORCHESTRATOR_FALLBACK, CLAUDE_ORCHESTRATOR_MODEL, ClaudeLaunchOptions},
         codex::CodexLaunchOptions,
+        copilot::CopilotLaunchOptions,
         gemini::GeminiLaunchOptions,
         usage::TranscriptUsage,
     },
@@ -145,6 +146,8 @@ fn transcript_exists(state: &AppState, provider: Provider, root: &Path, session_
             conversation_path(&home, session_id).is_file() || state.accounts().iter().filter(|a| a.provider == Provider::Gemini)
                 .any(|a| conversation_path(&accounts::account_folder(&state.data_dir, a.provider, &a.id), session_id).is_file())
         }
+        Provider::Copilot => std::env::var_os("COPILOT_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".copilot"))
+            .join("session-state").join(session_id).join("events.jsonl").is_file(),
         Provider::Local => thingmaker_supervisor::agents::local::conversation_exists(&thingmaker_supervisor::agents::local::local_home(&state.data_dir), root, session_id),
     }
 }
@@ -245,6 +248,16 @@ pub(crate) fn build_launch_for_account(
             options.permission_mode = permission_for(record);
             options.resume = resume;
             (LaunchTarget::executable(resolved.program), AgentLaunch::Gemini(options))
+        }
+        Provider::Copilot => {
+            let mut options = CopilotLaunchOptions::new(root);
+            options.reserved = reserved;
+            options.model = model;
+            options.effort = effort;
+            options.resume = resume;
+            options.permission_mode = permission_for(record);
+            options.account_home = account_folder.or_else(|| std::env::var_os("COPILOT_HOME").map(PathBuf::from));
+            (LaunchTarget::executable(resolved.program), AgentLaunch::Copilot(options))
         }
         Provider::Local => local_launch(state, root, record, model, effort, resume, reserved)?,
     })
@@ -499,7 +512,7 @@ pub async fn session_open(request: OpenRequest, state: State<'_, AppState>) -> C
             request.model.clone().or_else(|| read_setting("claudeOrchestratorModel")).or_else(|| Some(CLAUDE_ORCHESTRATOR_MODEL.to_string())),
             request.reasoning_effort.clone().or_else(|| read_setting("claudeOrchestratorEffort")).or_else(|| Some(CLAUDE_ORCHESTRATOR_EFFORT.to_string())),
         ),
-        Provider::Codex | Provider::Gemini | Provider::Local => (request.model.clone(), request.reasoning_effort.clone()),
+        Provider::Codex | Provider::Gemini | Provider::Copilot | Provider::Local => (request.model.clone(), request.reasoning_effort.clone()),
     };
     let resume = match &request.mode {
         OpenRequestMode::Resume { session_id } => Some(session_id.clone()),
@@ -551,6 +564,10 @@ pub async fn session_open(request: OpenRequest, state: State<'_, AppState>) -> C
         }
     }
     config.launch = launch;
+    if let Err(error) = super::team_mcp::prepare(&state, &mut config).await {
+        super::delegation::release(&state, session_id.as_str()).await;
+        return Err(error);
+    }
     #[cfg(windows)]
     if let Err(error) = super::local_mcp::prepare(&state, &mut config).await {
         super::delegation::release(&state, session_id.as_str()).await;
@@ -1318,6 +1335,7 @@ pub fn session_token_usage(request: TokenUsageRequest, state: State<'_, AppState
         }
         // `agy` keeps its conversation in its own database; usage arrives on
         // the session's stream instead.
+        Provider::Copilot => Err(DesktopError::unsupported("Copilot transcript usage is not supported yet")),
         Provider::Gemini => Err(DesktopError::unsupported("Antigravity reports token usage on the session's stream, not in a transcript the desktop reads")),
         // Free, so there is nothing to count against; each reply carries its
         // own totals.

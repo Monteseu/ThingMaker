@@ -9,7 +9,7 @@ use rusqlite::params;
 
 use super::{Storage, now_unix_ms};
 
-pub const SCHEMA_VERSION: i64 = 26;
+pub const SCHEMA_VERSION: i64 = 27;
 
 struct Migration {
     version: i64,
@@ -142,6 +142,7 @@ const MIGRATIONS: &[Migration] = &[
     Migration { version: 24, name: "drop_activity", sql: include_str!("schema/0024_drop_activity.sql"), rebuilds: false },
     Migration { version: 25, name: "ultra_reviews", sql: include_str!("schema/0025_ultra_reviews.sql"), rebuilds: false },
     Migration { version: 26, name: "local_models", sql: include_str!("schema/0026_local_models.sql"), rebuilds: true },
+    Migration { version: 27, name: "copilot", sql: include_str!("schema/0027_copilot.sql"), rebuilds: true },
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -214,6 +215,37 @@ pub(crate) fn migrate(storage: &mut Storage) -> Result<(), StorageError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn version_26_sessions_keep_their_ids_and_fork_links_when_copilot_is_added() {
+        use crate::{agents::Provider, storage::workspaces::SessionOrigin};
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("v26.db");
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        for migration in MIGRATIONS.iter().filter(|migration| migration.version <= 26) {
+            conn.execute_batch(migration.sql).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 26).unwrap();
+        let mut storage = Storage { conn, path: Some(path.clone()) };
+        storage.configure().unwrap();
+        let workspace = storage.workspace_upsert("/project", "/project", "project").unwrap();
+        let mut originals = Vec::new();
+        for provider in [Provider::Claude, Provider::Codex, Provider::Gemini, Provider::Local] {
+            originals.push(storage.session_upsert(&workspace.id, provider.as_str(), SessionOrigin::Desktop, provider).unwrap());
+        }
+        storage.conn().execute("UPDATE sessions SET parent_session_id=?1, title_overlay='Saved title', pinned=1 WHERE id=?2", params![originals[0].id, originals[1].id]).unwrap();
+        migrate(&mut storage).unwrap();
+        for original in &originals {
+            let row = storage.session_by_agent_id(&workspace.id, &original.agent_session_id).unwrap().unwrap();
+            assert_eq!(row.id, original.id);
+            assert_eq!(row.provider, original.provider);
+        }
+        let preserved: (String, String, i64) = storage.conn().query_row("SELECT parent_session_id,title_overlay,pinned FROM sessions WHERE id=?1", [&originals[1].id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).unwrap();
+        assert_eq!(preserved, (originals[0].id.clone(), "Saved title".into(), 1));
+        assert_eq!(storage.session_upsert(&workspace.id, "copilot-id", SessionOrigin::Desktop, Provider::Copilot).unwrap().provider, Provider::Copilot);
+        assert!(path.with_extension("v26.bak.db").is_file());
+        assert_eq!(storage.integrity_check().unwrap(), "ok");
+    }
 
     #[test]
     fn fresh_database_migrates_to_current_version_and_reopens_idempotently() {

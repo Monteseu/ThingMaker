@@ -176,7 +176,7 @@ describe("a team with local models", () => {
     expect(screen.getByText("A local lead does not hire it: its work would leave this computer")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Add a helper/ }));
     const picker = screen.getByRole("region", { name: "Add a helper" });
-    expect(within(picker).getAllByText("not with a local lead")).toHaveLength(3);
+    expect(within(picker).getAllByText("not with a local lead")).toHaveLength(4);
     const local = within(picker).getAllByRole("button", { name: /qwen3:8b/ });
     expect(local).toHaveLength(1);
     expect(within(picker).queryByRole("button", { name: /llama3.1:8b/ })).toBeNull();

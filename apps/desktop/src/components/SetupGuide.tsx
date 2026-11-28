@@ -29,6 +29,7 @@ const USES = (): Record<Provider, string> => ({
   claude: t("Uses your Claude Pro, Max, Team or Enterprise plan"),
   codex: t("Uses your ChatGPT plan"),
   gemini: t("Signs in through the Antigravity app"),
+  copilot: "GitHub Copilot CLI (copilot login)",
   local: t("Runs on this computer through Ollama. Free and private, no account needed."),
 });
 
@@ -144,6 +145,8 @@ function ProviderLine({ provider }: { provider: Provider }) {
 
   const pill = installing ? (
     <span className="setup-pill busy">{t("Installing…")}</span>
+  ) : provider === "copilot" && info?.resolved ? (
+    <span className="setup-pill">{t("Sign-in managed by CLI")}</span>
   ) : state === "ready" ? (
     <span className="setup-pill ok">{info?.auth?.plan ? t("Ready · {plan}", { plan: info.auth.plan }) : t("Ready")}</span>
   ) : state === "missing" ? (
@@ -158,6 +161,8 @@ function ProviderLine({ provider }: { provider: Provider }) {
 
   const hint = installing
     ? t("Running the official installer. This can take a minute.")
+    : provider === "copilot" && info?.resolved
+      ? t("Run copilot in your terminal, then use /login. Sign-in is managed by the CLI.")
     : state === "missing" && NPM_PACKAGE[provider]
       ? t("ThingMaker drives the official {name} program, which isn't installed yet.", { name: PROVIDER_LABELS[provider] })
       : state === "signing"
@@ -419,7 +424,7 @@ export function SetupGuide({ onFinish }: { onFinish: () => void }) {
   const [workspaceId, setWorkspaceId] = useState<string | null>(() => workspaces[0]?.id ?? null);
   const [moreAsked, setMore] = useState(false);
   // A ready Gemini or Ollama counts as connected, so it is never hidden.
-  const more = moreAsked || isReady(providers, "gemini") || isReady(providers, "local");
+  const more = moreAsked || isReady(providers, "gemini") || isReady(providers, "local") || Boolean(providers?.find((entry) => entry.provider === "copilot")?.resolved);
   const save = (patch: Partial<SetupProgress>) => setProgress(writeSetup(patch));
   const finish = () => {
     writeSetup({ finished: true });
@@ -427,7 +432,8 @@ export function SetupGuide({ onFinish }: { onFinish: () => void }) {
   };
 
   const ready = (["claude", "codex", "gemini", "local"] as Provider[]).filter((provider) => isReady(providers, provider));
-  const providerDone = ready.length > 0 && progress.continued === true;
+  const copilotInstalled = Boolean(providers?.find((entry) => entry.provider === "copilot")?.resolved);
+  const providerDone = (ready.length > 0 || copilotInstalled) && progress.continued === true;
   const workspace = workspaces.find((entry) => entry.id === workspaceId) ?? null;
   const folderDone = providerDone && workspace?.trustState === "trusted_local";
   const teamDone = folderDone && progress.team !== undefined;
@@ -459,7 +465,7 @@ export function SetupGuide({ onFinish }: { onFinish: () => void }) {
     return null;
   }, [progress.team, presets, providers]);
 
-  const readyNames = ready.map((provider) => PROVIDER_LABELS[provider]).join(", ");
+  const readyNames = [...ready.map((provider) => PROVIDER_LABELS[provider]), ...(copilotInstalled ? [PROVIDER_LABELS.copilot] : [])].join(", ");
 
   return (
     <div className="setup">
@@ -482,7 +488,7 @@ export function SetupGuide({ onFinish }: { onFinish: () => void }) {
             id="1"
             onChange={() => save({ continued: false })}
             state={providerDone ? "done" : "current"}
-            sub={providerDone ? readyNames : ready.length > 0 ? t("{names} ready. Add more, or continue.", { names: readyNames }) : t("One is enough. You can add more later.")}
+            sub={providerDone ? readyNames : ready.length > 0 ? t("{names} ready. Add more, or continue.", { names: ready.map((provider) => PROVIDER_LABELS[provider]).join(", ") }) : t("One is enough. You can add more later.")}
             title={t("Connect a provider")}
           >
             <div className="setup-list">
@@ -491,15 +497,16 @@ export function SetupGuide({ onFinish }: { onFinish: () => void }) {
               {more ? (
                 <>
                   <ProviderLine provider="gemini" />
+                  <ProviderLine provider="copilot" />
                   <ProviderLine provider="local" />
                 </>
               ) : (
                 <button className="setup-more" onClick={() => setMore(true)} type="button">
-                  {t("More: Gemini, local models")}
+                  {t("More: Gemini, GitHub Copilot, local models")}
                 </button>
               )}
             </div>
-            {ready.length > 0 && (
+            {(ready.length > 0 || copilotInstalled) && (
               <div className="setup-actions">
                 <button className="button button-primary" onClick={() => save({ continued: true })} type="button">
                   {t("Continue")}
